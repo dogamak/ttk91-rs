@@ -1,0 +1,10 @@
+X 	DC 	13
+Y 	DC 	15
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; hello.k91 - print 28
+;
+MAIN 	LOAD 	R1, X
+	ADD 	R1, Y
+	OUT 	R1, =CRT
+	SVC 	SP, =HALT

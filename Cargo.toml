@@ -1,0 +1,14 @@
+[package]
+name = "ttk91"
+version = "0.1.0"
+authors = ["Mitja Karhusaari <mitja@karhusaari.me>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[[bin]]
+name = "ttk91repl"
+path = "bin/repl.rs"
+
+[dependencies]
+nom = "5"
