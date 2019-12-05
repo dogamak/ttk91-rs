@@ -15,7 +15,7 @@ pub struct Program {
 }
 
 impl Program {
-    pub fn parse_bytecode<'a>(bytecode: &'a str) -> Result<Program, ParseError> {
+    pub fn parse<'a>(bytecode: &'a str) -> Result<Program, ParseError> {
         parse_bytecode_file(bytecode)
     }
 
