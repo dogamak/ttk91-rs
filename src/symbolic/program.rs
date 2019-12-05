@@ -1,4 +1,5 @@
 use crate::instruction::{OpCode, Register, Mode, Instruction};
+use super::parser::ParseError;
 
 #[derive(Debug, Clone)]
 pub struct InitializationTableEntry {
@@ -90,12 +91,14 @@ pub struct SecondOperand {
     pub(crate) index: Option<Register>,
 }
 
-pub type ParseError<'a> = nom::Err<(&'a str, nom::error::ErrorKind)>;
-
 impl Program {
     pub fn parse(s: &str) -> Result<Program, ParseError> {
-        super::parser::parse_symbolic_file(s)
-            .map(|(_input, program)| program)
+        match super::parser::parse_symbolic_file(s) {
+            Ok((_input, program)) => Ok(program),
+            Err(nom::Err::Error(err)) => Err(err),
+            Err(nom::Err::Failure(err)) => Err(err),
+            Err(nom::Err::Incomplete(_)) => Err(ParseError::incomplete()),
+        }
     }
 
     pub fn compile(self) -> crate::bytecode::Program {

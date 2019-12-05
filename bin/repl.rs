@@ -9,6 +9,7 @@ use ttk91::{
     instruction::{Instruction},
     symbolic::{
         parser::{
+            ParseError,
             register as parse_register,
             parse_line,
         },
@@ -192,7 +193,8 @@ impl ::std::fmt::Display for CommandError {
 enum Error {
     MemoryError(MemoryError),
     CommandError(CommandError),
-    InvalidInstruction,
+    ParseError(ParseError),
+    Incomplete,
     UnknownSymbol(String),
 }
 
@@ -201,7 +203,8 @@ impl ::std::fmt::Display for Error {
         match self {
             Error::CommandError(ce) => write!(f, "command error: {}", ce),
             Error::MemoryError(me) => write!(f, "memory error: {}", me),
-            Error::InvalidInstruction => write!(f, "invalid instruction"),
+            Error::ParseError(e) => write!(f, "parse error: {}", e),
+            Error::Incomplete => write!(f, "incomplete input"),
             Error::UnknownSymbol(sym) => write!(f, "unknown symbol: {}", sym),
         }
     }
@@ -212,6 +215,19 @@ impl From<MemoryError> for Error {
         Error::MemoryError(me)
     }
 }
+
+impl From<nom::Err<ParseError>> for Error {
+    fn from(e: nom::Err<ParseError>) -> Error {
+        use nom::Err;
+
+        match e {
+            Err::Failure(err) => Error::ParseError(err),
+            Err::Error(err) => Error::ParseError(err),
+            Err::Incomplete(_) => Error::Incomplete,
+        }
+    }
+}
+
 
 impl From<CommandError> for Error {
     fn from(ce: CommandError) -> Error {
@@ -304,10 +320,9 @@ impl REPL {
                 println!("Register {} = {}", register, value);
             },
             ("print_instruction", _) | ("pi", _) => {
-                let ins = match parse_line(&*format!("{}\n", rest)) {
-                    Ok((_, None)) => return Ok(()),
-                    Ok((_, Some(ins))) => ins,
-                    Err(_err) => return Err(Error::InvalidInstruction),
+                let ins = match parse_line(&*format!("{}\n", rest))? {
+                    (_, None) => return Ok(()),
+                    (_, Some(ins)) => ins,
                 };
 
                 match ins {
@@ -356,7 +371,11 @@ impl REPL {
             match self.handle_line(&input) {
                 Ok(()) => {},
                 Err(err) => {
-                    println!("Error: {}", err);
+                    if let Error::ParseError(err) = err {
+                        eprintln!("Error: {}", err.verbose(&input));
+                    } else {
+                        eprintln!("Error: {}", err);
+                    }
                 },
             }
         }
@@ -368,10 +387,9 @@ impl REPL {
             return Ok(());
         }
 
-        let ins = match parse_line(input) {
-            Ok((_, None)) => return Ok(()),
-            Ok((_, Some(ins))) => ins,
-            Err(_err) => return Err(Error::InvalidInstruction),
+        let ins = match parse_line(input)? {
+            (_, None) => return Ok(()),
+            (_, Some(ins)) => ins,
         };
 
         match ins {
