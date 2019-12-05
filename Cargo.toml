@@ -10,5 +10,9 @@ edition = "2018"
 name = "ttk91repl"
 path = "bin/repl.rs"
 
+[[bin]]
+name = "ttk91run"
+path = "bin/run.rs"
+
 [dependencies]
 nom = "5"
