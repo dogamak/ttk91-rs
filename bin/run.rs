@@ -33,7 +33,7 @@ fn main() {
 
         program = sym_prog.compile();
     } else {
-        program = bytecode::Program::parse_bytecode(&*file).unwrap();
+        program = bytecode::Program::parse(&*file).unwrap();
     }
 
     let mut emulator = Emulator::new(program.to_words(), StdIo);
