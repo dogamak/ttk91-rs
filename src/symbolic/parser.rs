@@ -3,7 +3,7 @@ use nom::{
     branch::alt,
     bytes::complete::{take_while, take_until, tag},
     combinator::{value, map, opt, map_res},
-    error::{context, ErrorKind},
+    error::context,
     IResult,
     multi::{fold_many0},
     sequence::{preceded, tuple, separated_pair, delimited, terminated},
@@ -28,135 +28,21 @@ use super::program::{
 use std::fmt;
 
 #[derive(Debug, Clone)]
-pub enum Kind {
-    Context(&'static str),
-    Nom(ErrorKind),
+pub enum ErrorKind {
     OpCode(String),
-    Incomplete,
 }
 
-impl fmt::Display for Kind {
+pub type ParseError = crate::error::ParseError<ErrorKind>;
+pub type Result<'a,R> = IResult<&'a str, R, ParseError>;
+
+impl fmt::Display for ErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Kind::Context(ctx) => write!(f, "invalid {}", ctx),
-            Kind::Nom(ctx) => write!(f, "unexpected input"),
-            Kind::OpCode(op) => write!(f, "invalid opcode '{}'", op),
-            Kind::Incomplete => write!(f, "expected more input"),
+            ErrorKind::OpCode(op) => write!(f, "invalid opcode '{}'", op),
         }
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct ParseError {
-    stack: Vec<(String, Kind)>,
-}
-
-impl ParseError {
-    pub(crate) fn incomplete() -> ParseError {
-        ParseError {
-            stack: vec![(String::new(), Kind::Incomplete)],
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct VerboseParseError<'a> {
-    pub line: usize,
-    pub column: usize,
-    kind: Kind,
-    rest: &'a str,
-}
-
-impl<'a> fmt::Display for VerboseParseError<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "at line {} col {}: {}, at '{}'", self.line, self.column, self.kind, self.rest)
-    }
-}
-
-impl ParseError {
-    pub fn verbose(self, input: &str) -> VerboseParseError {
-        for (rest, kind) in self.stack {
-            let mut line = 1;
-            let mut column = 1;
-
-            for ch in input[..rest.len()].chars() {
-                if ch == '\n' {
-                    line += 1;
-                    column = 0;
-                }
-
-                column += 1;
-            }
-
-            let start = input.len() - rest.len();
-            let mut end = start;
-
-            //while end < input.len() && end - start < 20 && &input[end] != '\n' {
-            for ch in input[start..].chars() {
-                if ch == '\n' {
-                    break;
-                }
-
-                if end - start > 20 {
-                    break;
-                }
-
-                end += 1;
-            }
-
-            let rest = &input[start..end];
-
-            return VerboseParseError {
-                line,
-                column,
-                kind,
-                rest,
-            };
-            //eprintln!(" at line {} col {}: {}", line, col, error);
-        }
-
-        unreachable!();
-    }
-}
-
-impl fmt::Display for ParseError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let (input, kind) = &self.stack[0];
-
-        let end = input
-            .chars()
-            .enumerate()
-            .find_map(|(i, c)| match c {
-                '\n' => Some(i),
-                _ => None,
-            })
-            .unwrap_or(20);
-
-        let end = std::cmp::min(end, 20);
-
-        write!(f, "{} at: {}", kind, &input[..end])
-    }
-}
-
-impl nom::error::ParseError<&str> for ParseError {
-    fn from_error_kind(input: &str, kind: ErrorKind) -> ParseError {
-        ParseError {
-            stack: vec![(input.to_string(), Kind::Nom(kind))],
-        }
-    }
-
-    fn append(input: &str, kind: ErrorKind, mut other: ParseError) -> ParseError {
-        other.stack.push((input.to_string(), Kind::Nom(kind)));
-        other
-    }
-
-    fn add_context(input: &str, ctx: &'static str, mut other: ParseError) -> ParseError {
-        other.stack.push((input.to_string(), Kind::Context(ctx)));
-        other
-    }
-}
-
-pub type Result<'a,R> = IResult<&'a str, R, ParseError>;
 
 fn take_i32(input: &str) -> Result<i32> {
     map(
@@ -321,9 +207,11 @@ fn _take_opcode(input: &str) -> Result<OpCode> {
         "JGRE"  => OpCode::Jump { negated: false, condition: JumpCondition::Greater },
         "JNGRE" => OpCode::Jump { negated: true,  condition: JumpCondition::Greater },
 
-        _ => return Err(nom::Err::Error(ParseError {
-            stack: vec![(orig_input.to_string(), Kind::OpCode(opcode.to_string()))],
-        })),
+        _ => {
+            let kind = ErrorKind::OpCode(opcode.to_string());
+            let err = ParseError::from_kind(orig_input.to_string(), kind);
+            return Err(nom::Err::Error(err));
+        },
     };
 
     Ok((input, opcode))

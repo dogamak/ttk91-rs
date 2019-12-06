@@ -17,10 +17,10 @@ pub fn compile(symprog: symbolic::Program) -> Program {
     let mut symbol_table = HashMap::new();
     let mut data = Vec::new();
 
-    symbol_table.insert("CRT".to_string(), data.len());
+    symbol_table.insert("CRT".to_string(), data.len() as u16);
     data.push(0);
 
-    symbol_table.insert("HALT".to_string(), data.len());
+    symbol_table.insert("HALT".to_string(), data.len() as u16);
     data.push(11);
 
     for entry in &symprog.init_table {
@@ -30,7 +30,7 @@ pub fn compile(symprog: symbolic::Program) -> Program {
             data.push(entry.value as u32);
         }
 
-        symbol_table.insert(entry.symbol.clone(), addr);
+        symbol_table.insert(entry.symbol.clone(), addr as u16);
     }
 
     let mut instructions = symprog.instructions
@@ -46,8 +46,8 @@ pub fn compile(symprog: symbolic::Program) -> Program {
                 let addr = *symbol_table.get(&entry.symbol).unwrap();
 
                 let imm = match entry.kind {
-                    RelocationKind::Address => addr as u16,
-                    RelocationKind::Value => data[addr] as u16,
+                    RelocationKind::Address => addr,
+                    RelocationKind::Value => data[addr as usize] as u16,
                 };
 
                 instructions[i].immediate = imm;

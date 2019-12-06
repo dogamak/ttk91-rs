@@ -91,7 +91,8 @@ pub mod emulator;
 pub mod instruction;
 pub mod bytecode;
 pub mod symbolic;
-mod compiler;
+pub mod compiler;
+pub mod error;
 
 //pub use emulator::{Memory, Emulator};
 //pub use program::Program;

@@ -1,46 +1,40 @@
 use std::collections::HashMap;
+use std::result::Result as StdResult;
 
 use nom::{
     IResult,
     bytes::complete::{tag, take_while},
-    combinator::map_res,
+    branch::alt,
+    combinator::{map, map_res},
     multi::{many0, fold_many0},
-    sequence::{terminated, tuple},
+    sequence::{delimited, terminated, tuple, preceded, separated_pair},
     error::context,
 };
 
 use super::program::{Segment, Program};
 
-/*impl Program {
-    fn as_bytes(&self) -> Vec<u8> {
-        let memory_size = std::cmp::max(self.code.end+1, self.data.end+1)*4;
-        let mut buffer = vec![0; memory_size];
+#[derive(Debug, Clone)]
+pub enum ErrorKind {}
 
-        for (i, addr) in (self.code.start..=self.code.end).enumerate() {
-            let bytes = self.code.content[i].to_be_bytes();
-            buffer[addr*4+0] = bytes[0];
-            buffer[addr*4+1] = bytes[1];
-            buffer[addr*4+2] = bytes[2];
-            buffer[addr*4+3] = bytes[3];
-        }
+pub type ParseError = crate::error::ParseError<ErrorKind>;
+type Result<'a,T> = IResult<&'a str, T, ParseError>;
 
-        for (i, addr) in (self.data.start..=self.data.end).enumerate() {
-            let bytes = self.data.content[i].to_be_bytes();
-            buffer[addr*4+0] = bytes[0];
-            buffer[addr*4+1] = bytes[1];
-            buffer[addr*4+2] = bytes[2];
-            buffer[addr*4+3] = bytes[3];
-        }
+const SPACE_CHARACTERS: &'static str = " \t";
+const NEWLINE_CHARACTERS: &'static str = "\r\n";
 
-        buffer
-    }
-}*/
+fn sp(input: &str) -> Result<&str> {
+    take_while(|c| SPACE_CHARACTERS.contains(c))(input)
+}
 
-fn parse_usize(s: &str) -> Result<usize, std::num::ParseIntError> {
+fn newline(input: &str) -> Result<&str> {
+    take_while(|c| NEWLINE_CHARACTERS.contains(c))(input)
+}
+
+fn parse_usize(s: &str) -> std::result::Result<usize, std::num::ParseIntError> {
     usize::from_str_radix(s, 10)
 }
 
-fn parse_u32(s: &str) -> Result<u32, std::num::ParseIntError> {
+fn parse_u32(s: &str) -> std::result::Result<u32, std::num::ParseIntError> {
     u32::from_str_radix(s, 10)
 }
 
@@ -48,68 +42,100 @@ fn is_digit(c: char) -> bool {
     c.is_digit(10)
 }
 
-pub type ParseError<'a> = ::nom::Err<::nom::error::VerboseError<&'a str>>;
+//pub type ParseError<'a> = ::nom::Err<::nom::error::VerboseError<&'a str>>;
 
-pub(crate) fn parse_bytecode_file(input: &str) -> Result<Program, ParseError> {
+pub(crate) fn parse_bytecode_file(input: &str) -> StdResult<Program, ParseError> {
     match parse_bytecode_file_nom(input) {
         Ok((_, program)) => Ok(program),
-        Err(e) => Err(e),
+        Err(nom::Err::Error(err)) | Err(nom::Err::Failure(err)) => Err(err),
+        Err(nom::Err::Incomplete(_)) => Err(ParseError::incomplete()),
     }
 }
 
-fn parse_bytecode_file_nom(input: &str) -> IResult<&str, Program, ::nom::error::VerboseError<&str>> {
-    let (input, _) = context(
-        "expected ___b91___ header",
-        tag("___b91___\r\n"))(input)?;
+fn parse_segment(header: &'static str) -> impl for<'a> Fn(&'a str) -> Result<'a, Segment> {
+    fn _parse_segment<'a>(header: &'static str, input: &'a str) -> Result<'a, Segment> {
+        map(
+            preceded(
+                terminated(tag(header), newline),
+                tuple((
+                    terminated(
+                        separated_pair(take_usize(10), sp, take_usize(10)),
+                        newline,
+                    ),
+                    many0(terminated(take_u32(10), newline)),
+                ))
+            ),
+            |((start, _end), content)| Segment {
+                start,
+                content,
+            },
+        )(input)
+    }
 
-    let (input, _) = context(
-        "expected ___code___ header",
-        tag("___code___\r\n"))(input)?;
+    move |input| _parse_segment(header, input)
+}
 
-    let take_usize = map_res(take_while(is_digit), parse_usize);
-    let take_u32 = map_res(take_while(is_digit), parse_u32);
-    let take_symbol_name = take_while(|c| c != ' ');
+fn take_symbol_name(input: &str) -> Result<&str> {
+    take_while(char::is_alphanumeric)(input)
+}
 
-    let (input, code_start) = take_usize(input)?;
-    let (input, _) = tag(" ")(input)?;
-    let (input, code_end) = take_usize(input)?;
-    let (input, _) = tag("\r\n")(input)?;
+fn take_usize(base: u32) -> impl Fn(&str) -> Result<usize> {
+    move |input: &str| map_res(
+        take_while(|c: char| c.is_digit(base)),
+        |s| usize::from_str_radix(s, base),
+    )(input)
+}
 
-    let (input, code) = many0(terminated(&take_u32, tag("\r\n")))(input)?;
+fn take_u32(base: u32) -> impl Fn(&str) -> Result<u32> {
+    move |input: &str| map_res(
+        take_while(|c: char| c.is_digit(base)),
+        |s| u32::from_str_radix(s, base),
+    )(input)
+}
 
-    let (input, _) = tag("___data___\r\n")(input)?;
+fn take_u16(base: u32) -> impl Fn(&str) -> Result<u16> {
+    move |input: &str| map_res(
+        take_while(|c: char| c.is_digit(base)),
+        |s| u16::from_str_radix(s, base),
+    )(input)
+}
 
-    let (input, data_start) = take_usize(input)?;
-    let (input, _) = tag(" ")(input)?;
-    let (input, data_end) = take_usize(input)?;
-    let (input, _) = tag("\r\n")(input)?;
-    let (input, data) = many0(terminated(&take_u32, tag("\r\n")))(input)?;
+fn take_i32(input: &str) -> Result<u32> {
+    alt((
+        preceded(tag("0x"), take_u32(16)),
+        take_u32(10),
+    ))(input)
+}
 
-    let (input, _) = tag("___symboltable___\r\n")(input)?;
+fn parse_symbol_table(input: &str) -> Result<HashMap<String, u16>> {
+    preceded(
+        preceded(tag("___symboltable___"), newline),
+        fold_many0(
+            terminated(separated_pair(take_symbol_name, sp, take_u16(10)), newline),
+            HashMap::new(),
+            |mut m, (symbol, value)| {
+                m.insert(symbol.to_string(), value);
+                m
+            },
+        ),
+    )(input)
+}
 
-    let (input, symbol_table) = fold_many0(
-        tuple((take_symbol_name, tag(" "), take_usize, tag("\r\n"))),
-        HashMap::new(),
-        |mut m, t| {
-            m.insert(t.0.to_string(), t.2);
-            m
-        })(input)?;
-
-    let (input, _) = tag("___end___\r\n")(input)?;
-
-    Ok((input, Program {
-        code: Segment {
-            start: code_start,
-            //end: code_end,
-            content: code,
+fn parse_bytecode_file_nom(input: &str) -> Result<Program> {
+    map(
+        delimited(
+            preceded(tag("___b91___"), newline),
+            tuple((
+                    parse_segment("___code___"),
+                    parse_segment("___data___"),
+                    parse_symbol_table,
+            )),
+            preceded(tag("___end___"), newline),
+        ),
+        |(code, data, symbol_table)| Program {
+            code,
+            data,
+            symbol_table,
         },
-
-        data: Segment {
-            start: data_start,
-            //end: data_end,
-            content: data,
-        },
-
-        symbol_table,
-    }))
+    )(input)
 }
