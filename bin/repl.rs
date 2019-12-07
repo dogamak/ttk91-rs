@@ -380,17 +380,19 @@ impl REPL {
             return Ok(());
         }
 
-        let ins = match parse_line(&input[..input.len()-1])? {
+        let (label, ins) = match parse_line(&input[..input.len()-1])? {
             None => return Ok(()),
-            Some((_, ins)) => ins,
+            Some((label, ins)) => (label, ins),
         };
 
         match ins {
             SymbolicInstruction::Pseudo(ins) => {
                 let addr = self.memory.push_data(ins.value)?;
-                self.symbol_table.insert(ins.symbol.clone(), addr);
 
-                println!("Symbol {} at address {}", ins.symbol, addr);
+                if let Some(label) = label {
+                    self.symbol_table.insert(label.to_string(), addr);
+                    println!("Symbol {} at address {}", label, addr);
+                }
             },
             SymbolicInstruction::Concrete(sins) => {
                 let mut ins: Instruction = sins.clone().into();

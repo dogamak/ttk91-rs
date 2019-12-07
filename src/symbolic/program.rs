@@ -9,14 +9,20 @@ pub struct InitializationTableEntry {
 }
 
 #[derive(Debug, Clone)]
+pub struct PseudoInstruction {
+    pub size: u16,
+    pub value: i32,
+}
+
+#[derive(Debug, Clone)]
 pub enum SymbolicInstruction {
     Concrete(ConcreteInstruction),
-    Pseudo(InitializationTableEntry),
+    Pseudo(PseudoInstruction),
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct Program {
-    pub init_table: Vec<InitializationTableEntry>,
+    pub init_table: Vec<(Option<String>, PseudoInstruction)>,
     pub instructions: Vec<(Option<String>, ConcreteInstruction)>,
 }
 

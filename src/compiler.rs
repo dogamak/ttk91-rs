@@ -23,14 +23,16 @@ pub fn compile(symprog: symbolic::Program) -> Program {
     symbol_table.insert("HALT".to_string(), data.len() as u16);
     data.push(11);
 
-    for entry in &symprog.init_table {
+    for (symbol, ins) in &symprog.init_table {
         let addr = data.len();
 
-        for _ in 0..entry.size {
-            data.push(entry.value as u32);
+        for _ in 0..ins.size {
+            data.push(ins.value as u32);
         }
 
-        symbol_table.insert(entry.symbol.clone(), addr as u16);
+        if let Some(symbol) = symbol {
+            symbol_table.insert(symbol.clone(), addr as u16);
+        }
     }
 
     let mut instructions = symprog.instructions
@@ -92,7 +94,7 @@ MAIN 	LOAD 	R1, X
 	    SVC 	SP, =HALT
     "#;
 
-    let (_, program) = parse_symbolic_file(source).unwrap();
+    let program = crate::symbolic::Program::parse(source).unwrap();
     println!("{:?}", program.instructions);
 
     let prog = compile(program);
