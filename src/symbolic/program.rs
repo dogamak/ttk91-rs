@@ -48,8 +48,13 @@ impl ConcreteInstruction {
 
 impl Into<Instruction> for ConcreteInstruction {
     fn into(self) -> Instruction {
+        let mut index_register = Register::R0;
+
         let immediate = match self.operand2.value {
-            Value::Register(_reg) => 0,
+            Value::Register(reg) => {
+                index_register = reg;
+                0
+            },
             Value::Symbol(_sym) => u16::max_value(),
             Value::Immediate(value) => value,
         };
@@ -57,7 +62,7 @@ impl Into<Instruction> for ConcreteInstruction {
         Instruction {
             opcode: self.opcode,
             register: self.operand1,
-            index_register: self.operand2.index.unwrap_or(Register::R0),
+            index_register,
             mode: self.operand2.mode,
             immediate,
         }
