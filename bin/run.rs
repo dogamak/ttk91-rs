@@ -1,6 +1,7 @@
 use ttk91::{
     symbolic,
     bytecode,
+    error::ParseError,
     emulator::{Emulator, Memory, StdIo},
 };
 
@@ -19,8 +20,8 @@ impl From<std::io::Error> for Error {
     }
 }
 
-impl<T> From<nom::Err<T>> for Error {
-    fn from(e: nom::Err<T>) -> Error {
+impl<K> From<ParseError<K>> for Error {
+    fn from(e: ParseError<K>) -> Error {
         Error::Parse
     }
 }
