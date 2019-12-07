@@ -1,4 +1,4 @@
-use std::fmt::{Display, Formatter, self};
+use std::fmt::{Display, self};
 use nom::error::ErrorKind;
 
 #[derive(Debug, Clone)]
@@ -59,7 +59,7 @@ impl<Kind> ParseError<Kind> {
             let mut line = 1;
             let mut column = 1;
 
-            for ch in input[..rest.len()].chars() {
+            for ch in input[..input.len()-rest.len()].chars() {
                 if ch == '\n' {
                     line += 1;
                     column = 0;
@@ -71,7 +71,6 @@ impl<Kind> ParseError<Kind> {
             let start = input.len() - rest.len();
             let mut end = start;
 
-            //while end < input.len() && end - start < 20 && &input[end] != '\n' {
             for ch in input[start..].chars() {
                 if ch == '\n' {
                     break;
@@ -92,7 +91,6 @@ impl<Kind> ParseError<Kind> {
                 kind,
                 rest,
             };
-            //eprintln!(" at line {} col {}: {}", line, col, error);
         }
 
         unreachable!();
