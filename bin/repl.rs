@@ -313,9 +313,9 @@ impl REPL {
                 println!("Register {} = {}", register, value);
             },
             ("print_instruction", _) | ("pi", _) => {
-                let ins = match parse_line(&*format!("{}\n", rest))? {
-                    (_, None) => return Ok(()),
-                    (_, Some(ins)) => ins,
+                let ins = match parse_line(rest)? {
+                    None => return Ok(()),
+                    Some((_, ins)) => ins,
                 };
 
                 match ins {
@@ -380,9 +380,9 @@ impl REPL {
             return Ok(());
         }
 
-        let ins = match parse_line(input)? {
-            (_, None) => return Ok(()),
-            (_, Some(ins)) => ins,
+        let ins = match parse_line(&input[..input.len()-1])? {
+            None => return Ok(()),
+            Some((_, ins)) => ins,
         };
 
         match ins {

@@ -330,14 +330,14 @@ fn take_comment(input: &str) -> Result<&str> {
     )(input)
 }
 
-pub fn take_line(input: &str) -> Result<(Option<&str>, Option<SymbolicInstruction>)> {
+pub fn take_line(input: &str) -> Result<Option<(Option<&str>, SymbolicInstruction)>> {
     preceded(
         sp,
         terminated(
-            tuple((
-                opt(terminated(take_label, sp)),
-                opt(take_instruction),
-            )),
+            opt(alt((
+                map(separated_pair(take_label, sp, take_instruction), |(label, ins)| (Some(label), ins)),
+                map(take_instruction, |ins| (None, ins)),
+            ))),
             opt(take_comment),
         ),
     )(input)
@@ -345,13 +345,13 @@ pub fn take_line(input: &str) -> Result<(Option<&str>, Option<SymbolicInstructio
 
 fn fold_program(
     mut program: Program,
-    (label, ins): (Option<&str>, Option<SymbolicInstruction>),
+    line: Option<(Option<&str>, SymbolicInstruction)>,
 ) -> Program { 
-    match ins {
-        Some(SymbolicInstruction::Pseudo(ins)) => {
+    match line {
+        Some((_label, SymbolicInstruction::Pseudo(ins))) => {
             program.init_table.push(ins);
         },
-        Some(SymbolicInstruction::Concrete(ins)) => {
+        Some((label, SymbolicInstruction::Concrete(ins))) => {
             let label = label.map(str::to_string);
             program.instructions.push((label, ins));
         },
@@ -370,7 +370,7 @@ fn flatten_error(err: nom::Err<ParseError>) -> ParseError {
 }
 
 pub fn parse_line(input: &str)
-    -> StdResult<(Option<&str>, Option<SymbolicInstruction>), ParseError>
+    -> StdResult<Option<(Option<&str>, SymbolicInstruction)>, ParseError>
 {
     all_consuming(take_line)(input)
         .map(|(_input, result)| result)
