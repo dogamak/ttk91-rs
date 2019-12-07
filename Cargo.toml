@@ -12,3 +12,4 @@ path = "bin/repl.rs"
 
 [dependencies]
 nom = "5"
+nom_locate = "1"

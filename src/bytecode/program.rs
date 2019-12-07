@@ -16,7 +16,7 @@ pub struct Program {
 
 impl Program {
     pub fn parse_bytecode<'a>(bytecode: &'a str) -> Result<Program, ParseError> {
-        parse_bytecode_file(bytecode)
+        parse_bytecode_file(nom_locate::LocatedSpan::new(bytecode))
     }
 
     pub fn to_words(&self) -> Vec<u32> {

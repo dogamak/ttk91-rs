@@ -1,5 +1,7 @@
 use crate::instruction::{OpCode, Register, Mode, Instruction};
 use super::parser::ParseError;
+use crate::compiler::SourceMap;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct InitializationTableEntry {
@@ -20,10 +22,17 @@ pub enum SymbolicInstruction {
     Pseudo(PseudoInstruction),
 }
 
+#[derive(Clone, Debug)]
+pub struct InstructionEntry {
+    pub label: Option<String>,
+    pub instruction: SymbolicInstruction,
+    pub source_line: usize,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Program {
-    pub init_table: Vec<(Option<String>, PseudoInstruction)>,
-    pub instructions: Vec<(Option<String>, ConcreteInstruction)>,
+    //pub init_table: Vec<(Option<String>, PseudoInstruction)>,
+    pub instructions: Vec<InstructionEntry>,
 }
 
 #[derive(Debug, Clone)]
@@ -110,5 +119,11 @@ impl Program {
     pub fn compile(self) -> crate::bytecode::Program {
         use crate::compiler::compile;
         compile(self)
+    }
+
+    pub fn compile_with_sourcemap(self) -> (crate::bytecode::Program, HashMap<u16, usize>) {
+        use crate::compiler::compile;
+        let (program, source_map): (_, SourceMap<_>) = compile(self);
+        (program, source_map.map)
     }
 }

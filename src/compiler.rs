@@ -1,80 +1,249 @@
-use crate::symbolic::{self, program::RelocationKind};
+use crate::symbolic::{
+    self,
+    program::{
+        RelocationKind,
+        SymbolicInstruction,
+    },
+};
 use crate::bytecode::{Segment, Program};
 use crate::instruction::Instruction;
 
 use std::collections::HashMap;
 use std::convert::TryInto;
 
-pub fn compile(symprog: symbolic::Program) -> Program {
-    let mut relocation_table = Vec::new();
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SegmentType {
+    Text,
+    Data,
+}
 
-    for (label, ins) in &symprog.instructions {
-        if let Some(entry) = ins.relocation_symbol() {
-            relocation_table.push(entry);
+pub trait CompileTarget: Sized {
+    type Location: Clone;
+
+    fn create() -> Self;
+
+    fn with_capacity(_size: u16) -> Self {
+        Self::create()
+    }
+
+    fn finish(self) -> Self {
+        self
+    }
+
+    fn set_word(&mut self, addr: &Self::Location, word: i32);
+    fn push_word(&mut self, source_line: Option<usize>, word: i32, segment: SegmentType) -> Self::Location;
+    fn new_symbol(&mut self, label: String, address: &Self::Location);
+    fn to_address(&self, loc: &Self::Location) -> u16;
+}
+
+impl Program {
+    fn move_symbols_after(&mut self, addr: u16) {
+        for (key, value) in self.symbol_table.iter_mut() {
+            if *value >= addr {
+                *value += 1;
+                println!("Moved symbol '{}' from {} to {}", key, *value - 1, value);
+            }
+        }
+    }
+}
+
+impl CompileTarget for Program {
+    type Location = (SegmentType, usize);
+
+    fn create() -> Program {
+        Program {
+            code: Segment {
+                content: Vec::new(),
+                start: 0,
+            },
+            data: Segment {
+                content: Vec::new(),
+                start: 0,
+            },
+            symbol_table: HashMap::new(),
         }
     }
 
+    fn push_word(
+        &mut self,
+        _source_line: Option<usize>,
+        word: i32,
+        segment: SegmentType,
+    ) -> Self::Location {
+        let (abs_addr, rel_addr) = match segment {
+            SegmentType::Text => {
+                self.code.content.push(word as u32);
+                self.data.start += 1;
+                (self.code.content.len() - 1, self.code.content.len() - 1)
+            },
+            SegmentType::Data => {
+                self.data.content.push(word as u32);
+                (self.code.content.len() + self.data.content.len() - 1, self.data.content.len() - 1)
+            },
+        };
+
+        self.move_symbols_after(abs_addr as u16);
+
+        (segment, rel_addr)
+    }
+
+    fn set_word(&mut self, (segment, addr): &Self::Location, value: i32) {
+        match segment {
+            SegmentType::Text => self.code.content[*addr] = value as u32,
+            SegmentType::Data => self.data.content[*addr] = value as u32,
+        }
+    }
+
+    fn new_symbol(&mut self, label: String, (segment, mut addr): &Self::Location) {
+        if *segment == SegmentType::Data {
+            addr += self.code.content.len();
+        }
+
+        println!("Add label '{}': {}", label, addr);
+
+        self.symbol_table.insert(label, addr as u16);
+    }
+
+    fn to_address(&self, loc: &Self::Location) -> u16 {
+        match loc {
+            (SegmentType::Text, addr) => *addr as u16,
+            (SegmentType::Data, addr) => (addr + self.data.start) as u16,
+        }
+    }
+}
+
+pub struct SourceMap<L> {
+    tmp: HashMap<L, usize>,
+    pub map: HashMap<u16, usize>,
+}
+
+impl<T> CompileTarget for (T, SourceMap<T::Location>)
+    where T: CompileTarget,
+          T::Location: std::hash::Hash + std::cmp::Eq + Clone,
+{
+    type Location = T::Location;
+
+    fn create() -> Self {
+        (
+            T::create(),
+            SourceMap {
+                tmp: HashMap::new(),
+                map: HashMap::new(),
+            },
+        )
+    }
+
+    fn set_word(&mut self, loc: &Self::Location, word: i32) {
+        self.0.set_word(loc, word);
+    }
+
+    fn push_word(&mut self, source_line: Option<usize>, word: i32, segment: SegmentType) -> Self::Location {
+        let loc = self.0.push_word(source_line, word, segment);
+
+        if let Some(line) = source_line {
+            self.1.tmp.insert(loc.clone(), line);
+        }
+
+        loc
+    }
+
+    fn new_symbol(&mut self, label: String, loc: &Self::Location) {
+        self.0.new_symbol(label, loc);
+    }
+
+    fn to_address(&self, loc: &Self::Location) -> u16 {
+        self.0.to_address(loc)
+    }
+
+    fn finish(mut self) -> Self {
+        let mut map = HashMap::new();
+
+        for (loc, source) in self.1.tmp.drain() {
+            let addr = self.0.to_address(&loc);
+            map.insert(addr, source);
+        }
+
+        self.1.map = map;
+
+        self
+    }
+}
+
+pub fn compile<T: CompileTarget>(symprog: symbolic::Program) -> T {
+    let mut target = T::create();
+
+    let mut relocation_table = HashMap::<String, Vec<(T::Location, Instruction)>>::new();
     let mut symbol_table = HashMap::new();
-    let mut data = Vec::new();
 
-    symbol_table.insert("CRT".to_string(), data.len() as u16);
-    data.push(0);
+    for entry in symprog.instructions {
+        match entry.instruction {
+            SymbolicInstruction::Concrete(sym_ins) => {
+                let ins: Instruction = sym_ins.clone().into();
+                let word: u32 = ins.clone().into();
 
-    symbol_table.insert("HALT".to_string(), data.len() as u16);
-    data.push(11);
+                let loc = target.push_word(
+                    Some(entry.source_line),
+                    word as i32,
+                    SegmentType::Text,
+                );
 
-    for (symbol, ins) in &symprog.init_table {
-        let addr = data.len();
+                if let Some(reloc) = sym_ins.relocation_symbol() {
+                    relocation_table
+                        .entry(reloc.symbol)
+                        .or_default()
+                        .push((loc.clone(), ins));
+                }
 
-        for _ in 0..ins.size {
-            data.push(ins.value as u32);
-        }
+                if let Some(label) = entry.label {
+                    target.new_symbol(label.clone(), &loc);
+                    symbol_table.insert(label, loc);
+                }
+            },
+            SymbolicInstruction::Pseudo(ins) => {
+                let loc = target.push_word(
+                    Some(entry.source_line),
+                    ins.value,
+                    SegmentType::Data,
+                );
 
-        if let Some(symbol) = symbol {
-            symbol_table.insert(symbol.clone(), addr as u16);
-        }
-    }
+                if let Some(label) = entry.label {
+                    target.new_symbol(label.clone(), &loc);
+                    symbol_table.insert(label, loc);
+                }
 
-    let mut instructions = symprog.instructions
-        .iter()
-        .map(|(_label, ins)| ins)
-        .cloned()
-        .map(Into::into)
-        .collect::<Vec<Instruction>>();
-
-    for (i, (label, ins)) in symprog.instructions.iter().enumerate() {
-        if let Some(label) = label {
-            symbol_table.insert(label.to_string(), i as u16);
-        }
-
-        match ins.relocation_symbol() {
-            None => {},
-            Some(entry) => {
-                let addr = *symbol_table.get(&entry.symbol).unwrap();
-
-                let imm = match entry.kind {
-                    RelocationKind::Address => addr,
-                    RelocationKind::Value => data[addr as usize] as u16,
-                };
-
-                instructions[i].immediate = imm;
+                for _ in 0..ins.size-1 {
+                    target.push_word(
+                        Some(entry.source_line),
+                        ins.value,
+                        SegmentType::Data,
+                    );
+                }
             },
         }
     }
 
-    let bytecode = instructions.into_iter().map(Into::into).collect(); 
+    for (label, locs) in relocation_table {
+        let addr = match label.as_str() {
+            "CRT" => 0,
+            "HALT" => 11,
+            _ => {
+                let sym_loc = symbol_table.get(&label).unwrap();
+                target.to_address(sym_loc)
+            },
+        };
 
-    Program {
-        symbol_table,
-        code: Segment {
-            start: data.len(),
-            content: bytecode,
-        },
-        data: Segment {
-            start: 0,
-            content: data,
-        },
+        for (ins_loc, mut ins) in locs {
+            ins.immediate = addr;
+            let word: u32 = ins.into();
+
+            target.set_word(
+                &ins_loc,
+                word as i32,
+            );
+        }
     }
+    
+    target.finish()
 }
 
 #[test]
@@ -97,9 +266,13 @@ MAIN 	LOAD 	R1, X
     let program = crate::symbolic::Program::parse(source).unwrap();
     println!("{:?}", program.instructions);
 
-    let prog = compile(program);
+    let prog: crate::bytecode::Program = compile(program);
 
     use std::convert::TryFrom;
+
+    for word in &prog.code.content {
+        println!("W> {:b}", word);
+    }
 
     let ins = prog.code.content.iter()
         .map(|word| Instruction::try_from(*word).unwrap())
@@ -108,4 +281,34 @@ MAIN 	LOAD 	R1, X
     println!("{:?}", ins);
 
     println!("{:?}", prog);
+}
+
+#[test]
+fn test_compile_sourcemap() {
+    use crate::{symbolic, bytecode};
+
+    let source = r#"
+X 	DC 	13
+Y 	DC 	15
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; hello.k91 - print 28
+;
+MAIN 	LOAD 	R1, X
+        ADD 	R1, Y
+	    OUT 	R1, =CRT
+	    SVC 	SP, =HALT
+    "#;
+
+    let program = symbolic::Program::parse(source).unwrap();
+    let prog: (bytecode::Program, SourceMap<(SegmentType, usize)>) = compile(program);
+
+    assert_eq!(prog.1.map.get(&0), Some(&8));
+    assert_eq!(prog.1.map.get(&1), Some(&9));
+    assert_eq!(prog.1.map.get(&2), Some(&10));
+    assert_eq!(prog.1.map.get(&3), Some(&11));
+    assert_eq!(prog.1.map.get(&4), Some(&2));
+    assert_eq!(prog.1.map.get(&5), Some(&3));
+
+    println!("{:?}", prog.1.map);
 }

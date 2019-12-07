@@ -146,3 +146,23 @@ impl<Kind> nom::error::ParseError<&str> for ParseError<Kind> {
         other
     }
 }
+
+type Span<'a> = nom_locate::LocatedSpan<&'a str>;
+
+impl<'a,Kind> nom::error::ParseError<Span<'a>> for ParseError<Kind> {
+    fn from_error_kind(input: Span, kind: ErrorKind) -> Self {
+        ParseError {
+            stack: vec![(input.to_string(), InnerError::Nom(kind))],
+        }
+    }
+
+    fn append(input: Span, kind: ErrorKind, mut other: Self) -> Self {
+        other.stack.push((input.to_string(), InnerError::Nom(kind)));
+        other
+    }
+
+    fn add_context(input: Span, ctx: &'static str, mut other: Self) -> Self {
+        other.stack.push((input.to_string(), InnerError::Context(ctx)));
+        other
+    }
+}

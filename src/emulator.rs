@@ -277,7 +277,7 @@ pub struct Emulator<Mem, IO> {
     pub context: Context,
 
     /// Interface for doing IO operations and supervisor calls.
-    io: IO,
+    pub io: IO,
 
     /// True if the execution has been halted.
     pub halted: bool,
