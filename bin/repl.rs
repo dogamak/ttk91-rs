@@ -3,14 +3,14 @@ use std::rc::Rc;
 use std::convert::TryFrom;
 use std::collections::HashMap;
 use std::io::Write;
+use std::str::FromStr;
 
 use ttk91::{
     emulator::{Memory, InputOutput, Emulator, StdIo},
-    instruction::{Instruction},
+    instruction::{Instruction, Register},
     symbolic::{
         parser::{
             ParseError,
-            register as parse_register,
             parse_line,
         },
         program::{
@@ -300,8 +300,8 @@ impl REPL {
                 }
             },
             ("reg", [register]) | ("register", [register]) => {
-                let register = match parse_register(register) {
-                    Ok((_rest, register)) => register,
+                let register = match Register::from_str(register) {
+                    Ok(register) => register,
                     Err(_err) => {
                         println!("Invalid register {}", register);
                         return Ok(());

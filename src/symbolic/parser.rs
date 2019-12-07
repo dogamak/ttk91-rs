@@ -195,7 +195,7 @@ fn take_concrete_opcode(input: &str) -> Result<OpCode> {
 }
 
 /// Parse a register keyword.
-pub fn register(input: &str) -> Result<Register> {
+fn register(input: &str) -> Result<Register> {
     context("register",
         alt((
             value(Register::R1, tag("R1")),
@@ -207,6 +207,24 @@ pub fn register(input: &str) -> Result<Register> {
             value(Register::R7, tag("R7")),
             value(Register::R7, tag("SP")),
         )))(input)
+}
+
+impl std::str::FromStr for Register {
+    type Err = ();
+
+    fn from_str(input: &str) -> StdResult<Register, ()> {
+        match input {
+            "R1" => Ok(Register::R1),
+            "R2" => Ok(Register::R2),
+            "R3" => Ok(Register::R3),
+            "R4" => Ok(Register::R4),
+            "R5" => Ok(Register::R5),
+            "R6" => Ok(Register::R6),
+            "R7" => Ok(Register::R7),
+            "SP" => Ok(Register::R7),
+            _ => Err(()),
+        }
+    }
 }
 
 fn operand1(input: &str) -> Result<Register> {
@@ -298,7 +316,7 @@ fn take_comment(input: &str) -> Result<&str> {
 }
 
 /// Parse a single line of assembly.
-pub fn take_line(input: &str) -> Result<Option<(Option<&str>, SymbolicInstruction)>> {
+fn take_line(input: &str) -> Result<Option<(Option<&str>, SymbolicInstruction)>> {
     preceded(
         opt(sp),
         terminated(
@@ -351,7 +369,7 @@ pub fn parse_line(input: &str)
 }
 
 /// Parse an entire assembly program.
-pub fn take_symbolic_file(input: &str) -> Result<Program> {
+fn take_symbolic_file(input: &str) -> Result<Program> {
     map(
         tuple((
             fold_many0(
