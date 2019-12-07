@@ -1,30 +1,57 @@
+//! Functions for parsing symbolic assembly programs from strings.
+//!
+//! The only function you problaly are interested in here is [parse_symbolic_file], which
+//! you probably want to use via [Program::parse](crate::symbolic::Program::parse).
+
 use nom::{
-    IResult,
-    bytes::complete::{take_while, take_until, tag},
     branch::alt,
-    combinator::{value, map, opt, map_res},
+    bytes::complete::{take_while1, take_while, take_till, tag},
+    combinator::{value, map, opt, map_res, all_consuming},
+    error::context,
+    IResult,
     multi::{fold_many0},
-    sequence::{preceded, tuple, separated_pair, delimited},
-    alt,
+    sequence::{preceded, tuple, separated_pair, delimited, terminated},
 };
 
 use crate::instruction::{
-    Mode,
-    Register,
-    OpCode,
     JumpCondition,
+    Mode,
+    OpCode,
+    Register,
 };
 
 use super::program::{
     ConcreteInstruction,
-    InitializationTableEntry,
+    PseudoInstruction,
     Program,
     SecondOperand,
     SymbolicInstruction,
     Value,
 };
 
-fn take_i32(input: &str) -> IResult<&str, i32> {
+use std::fmt;
+use std::result::Result as StdResult;
+
+/// Represents error conditions specific to symbolic assembly parsing.
+#[derive(Debug, Clone)]
+pub enum ErrorKind {
+    OpCode(String),
+}
+
+/// An error which has prevented the input from being parsed successfully.
+pub type ParseError = crate::error::ParseError<ErrorKind>;
+type Result<'a,R> = IResult<&'a str, R, ParseError>;
+
+impl fmt::Display for ErrorKind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ErrorKind::OpCode(op) => write!(f, "invalid opcode '{}'", op),
+        }
+    }
+}
+
+
+fn take_i32(input: &str) -> Result<i32> {
     map(
         tuple((
             opt(alt((tag("+"), tag("-")))),
@@ -32,12 +59,12 @@ fn take_i32(input: &str) -> IResult<&str, i32> {
                 map_res(
                     preceded(
                         tag("0x"),
-                        take_while(|c: char| c.is_digit(16)),
+                        take_while1(|c: char| c.is_digit(16)),
                     ),
                     |n| i32::from_str_radix(n, 16)
                 ),
                 map_res(
-                    take_while(|c: char| c.is_digit(10)),
+                    take_while1(|c: char| c.is_digit(10)),
                     |n| i32::from_str_radix(n, 10)
                 ),
             )),
@@ -50,34 +77,21 @@ fn take_i32(input: &str) -> IResult<&str, i32> {
 }
 
 const SPACE_CHARACTERS: &'static str = " \t";
-const NEWLINE_CHARACTERS: &'static str = "\r\t";
+const NEWLINE_CHARACTERS: &'static str = "\r\n";
 
-fn sp(input: &str) -> IResult<&str, &str> {
-    take_while(|c| SPACE_CHARACTERS.contains(c))(input)
+fn sp(input: &str) -> Result<&str> {
+    take_while1(|c| SPACE_CHARACTERS.contains(c))(input)
 }
 
-fn newline(input: &str) -> IResult<&str, &str> {
-    take_while(|c| NEWLINE_CHARACTERS.contains(c))(input)
+fn newline(input: &str) -> Result<&str> {
+    take_while1(|c| NEWLINE_CHARACTERS.contains(c))(input)
 }
 
-fn take_label(input: &str) -> IResult<&str, &str> {
-    preceded(sp, take_while(char::is_alphanumeric))(input)
+fn take_label(input: &str) -> Result<&str> {
+    take_while(char::is_alphanumeric)(input)
 }
 
-#[derive(Debug, Clone)]
-pub struct PseudoInstruction {
-    label: String,
-    kind: PseudoInstructionKind,
-    value: i32,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum PseudoInstructionKind {
-    EQU,
-    DC,
-}
-
-fn pseudo_opcode(input: &str) -> IResult<&str, PseudoInstructionKind> {
+/*fn pseudo_opcode(input: &str) -> Result<PseudoInstructionKind> {
     preceded(
         sp,
         alt((
@@ -85,15 +99,16 @@ fn pseudo_opcode(input: &str) -> IResult<&str, PseudoInstructionKind> {
             value(PseudoInstructionKind::DC,  tag("DC"))
         )),
     )(input)
-}
+}*/
 
-fn take_pseudo_instruction(input: &str) -> IResult<&str, InitializationTableEntry> {
-    let (input, label) = take_label(input)?;
-
-    let (input, _) = sp(input)?;
+fn take_pseudo_instruction(input: &str) -> Result<PseudoInstruction> {
+    //let (input, label) = take_label(input)?;
+    //let (input, _) = opt(sp)(input)?;
 
     let parse_value = map(take_i32, |x| (1, x));
     let parse_size  = map(take_i32, |x| (x as u16, 0));
+
+    println!("TPI>> {}", input);
 
     let (input, (_kind, (size, value))) = alt((
             separated_pair(tag("EQU"), sp, &parse_value),
@@ -101,31 +116,13 @@ fn take_pseudo_instruction(input: &str) -> IResult<&str, InitializationTableEntr
             separated_pair(tag("DS"),  sp, &parse_size),
     ))(input)?;
 
-    Ok((input, InitializationTableEntry {
-        symbol: label.to_string(),
+    Ok((input, PseudoInstruction {
         size,
-        value: value as i32,
+        value,
     }))
 }
 
-
-
-macro_rules! alt {
-    ( $($parser:expr),* $(,)* ) => {
-        |input: &str| -> IResult<&str, OpCode> {
-            let mut err;
-
-            $(match $parser(input) {
-                Ok((i, o)) => return Ok((i, o)),
-                Err(e) => err = e,
-            })*
-
-            Err(err)
-        }
-    };
-}
-
-fn jump_instruction(input: &str) -> IResult<&str, OpCode> {
+fn jump_instruction(input: &str) -> Result<OpCode> {
     let (input, _) = tag("J")(input)?;
     let (input, negated) = map(opt(tag("N")), |o| o.is_some())(input)?;
 
@@ -143,64 +140,99 @@ fn jump_instruction(input: &str) -> IResult<&str, OpCode> {
     Ok((input, OpCode::Jump { negated, condition }))
 }
 
-fn take_concrete_opcode(input: &str) -> IResult<&str, OpCode> {
-    let (input, _) = sp(input)?;
+fn take_concrete_opcode(input: &str) -> Result<OpCode> {
+    let orig_input = input;
 
-    preceded(
-        sp,
-        alt!(
-            value(OpCode::NoOperation,    tag("NOP")),
-            value(OpCode::Store,          tag("STORE")),
-            value(OpCode::Load,           tag("LOAD")),
-            value(OpCode::In,             tag("IN")),
-            value(OpCode::Out,            tag("OUT")),
-            value(OpCode::Add,            tag("ADD")),
-            value(OpCode::Subtract,       tag("SUB")),
-            value(OpCode::Multiply,       tag("MUL")),
-            value(OpCode::Divide,         tag("DIV")),
-            value(OpCode::Modulo,         tag("MOD")),
-            value(OpCode::And,            tag("AND")),
-            value(OpCode::Or,             tag("OR")),
-            value(OpCode::Xor,            tag("XOR")),
-            value(OpCode::ShiftLeft,      tag("SHL")),
-            value(OpCode::ShiftRight,     tag("SHR")),
-            value(OpCode::Not,            tag("NOT")),
-            value(OpCode::Compare,        tag("COMP")),
-            value(OpCode::Call,           tag("CALL")),
-            value(OpCode::Exit,           tag("EXIT")),
-            value(OpCode::Push,           tag("PUSH")),
-            value(OpCode::Pop,            tag("POP")),
-            value(OpCode::PushRegisters,  tag("PUSHR")),
-            value(OpCode::PopRegisters,   tag("POPR")),
-            value(OpCode::SupervisorCall, tag("SVC")),
-            value(OpCode::ArithmeticShiftRight, tag("ASHR")),
-            jump_instruction,
-        )
-    )(input)
+    let (input, opcode) = take_while(|c: char| !c.is_whitespace())(input)?;
+
+    let opcode = match opcode {
+        "NOP"   => OpCode::NoOperation,
+        "STORE" => OpCode::Store,
+        "LOAD"  => OpCode::Load,
+        "IN"    => OpCode::In,
+        "OUT"   => OpCode::Out,
+        "ADD"   => OpCode::Add,
+        "SUB"   => OpCode::Subtract,
+        "MUL"   => OpCode::Multiply,
+        "DIV"   => OpCode::Divide,
+        "MOD"   => OpCode::Modulo,
+        "AND"   => OpCode::And,
+        "OR"    => OpCode::Or,
+        "XOR"   => OpCode::Xor,
+        "SHL"   => OpCode::ShiftLeft,
+        "SHR"   => OpCode::ShiftRight,
+        "NOT"   => OpCode::Not,
+        "COMP"  => OpCode::Compare,
+        "CALL"  => OpCode::Call,
+        "EXIT"  => OpCode::Exit,
+        "PUSH"  => OpCode::Push,
+        "POP"   => OpCode::Pop,
+        "PUSHR" => OpCode::PushRegisters,
+        "POPR"  => OpCode::PopRegisters,
+        "SVC"   => OpCode::SupervisorCall,
+        "JUMP"  => OpCode::Jump { negated: false, condition: JumpCondition::Unconditional },
+        "JZER"  => OpCode::Jump { negated: false, condition: JumpCondition::Zero },
+        "JNZER" => OpCode::Jump { negated: true,  condition: JumpCondition::Zero },
+        "JPOS"  => OpCode::Jump { negated: false, condition: JumpCondition::Positive },
+        "JNPOS" => OpCode::Jump { negated: true,  condition: JumpCondition::Positive },
+        "JNEG"  => OpCode::Jump { negated: false, condition: JumpCondition::Negative },
+        "JNNEG" => OpCode::Jump { negated: true,  condition: JumpCondition::Negative },
+        "JEQU"  => OpCode::Jump { negated: false, condition: JumpCondition::Equal },
+        "JNEQU" => OpCode::Jump { negated: true,  condition: JumpCondition::Equal },
+        "JLES"  => OpCode::Jump { negated: false, condition: JumpCondition::Less },
+        "JNLES" => OpCode::Jump { negated: true,  condition: JumpCondition::Less },
+        "JGRE"  => OpCode::Jump { negated: false, condition: JumpCondition::Greater },
+        "JNGRE" => OpCode::Jump { negated: true,  condition: JumpCondition::Greater },
+
+        _ => {
+            let kind = ErrorKind::OpCode(opcode.to_string());
+            let err = ParseError::from_kind(orig_input.to_string(), kind);
+            return Err(nom::Err::Error(err));
+        },
+    };
+
+    Ok((input, opcode))
 }
 
-pub fn register(input: &str) -> IResult<&str, Register> {
-    alt((
-        value(Register::R1, tag("R1")),
-        value(Register::R2, tag("R2")),
-        value(Register::R3, tag("R3")),
-        value(Register::R4, tag("R4")),
-        value(Register::R5, tag("R5")),
-        value(Register::R6, tag("R6")),
-        value(Register::R7, tag("R7")),
-        value(Register::R7, tag("SP")),
-    ))(input)
+/// Parse a register keyword.
+fn register(input: &str) -> Result<Register> {
+    context("register",
+        alt((
+            value(Register::R1, tag("R1")),
+            value(Register::R2, tag("R2")),
+            value(Register::R3, tag("R3")),
+            value(Register::R4, tag("R4")),
+            value(Register::R5, tag("R5")),
+            value(Register::R6, tag("R6")),
+            value(Register::R7, tag("R7")),
+            value(Register::R7, tag("SP")),
+        )))(input)
 }
 
-fn operand1(input: &str) -> IResult<&str, Register> {
-    preceded(
-        sp,
-        register,
-    )(input)
+impl std::str::FromStr for Register {
+    type Err = ();
+
+    fn from_str(input: &str) -> StdResult<Register, ()> {
+        match input {
+            "R1" => Ok(Register::R1),
+            "R2" => Ok(Register::R2),
+            "R3" => Ok(Register::R3),
+            "R4" => Ok(Register::R4),
+            "R5" => Ok(Register::R5),
+            "R6" => Ok(Register::R6),
+            "R7" => Ok(Register::R7),
+            "SP" => Ok(Register::R7),
+            _ => Err(()),
+        }
+    }
+}
+
+fn operand1(input: &str) -> Result<Register> {
+    register(input)
 }
 
 
-fn operand_value(input: &str) -> IResult<&str, Value> {
+fn operand_value(input: &str) -> Result<Value> {
     alt((
         map(take_i32, |n| Value::Immediate(n as u16)),
         map(register, Value::Register),
@@ -212,93 +244,153 @@ fn with_mode(mode: Mode) -> impl Fn(Value) -> SecondOperand {
     move |value| SecondOperand { mode, value, index: None }
 }
 
-fn immediate_operand(input: &str) -> IResult<&str, SecondOperand> {
+fn immediate_operand(input: &str) -> Result<SecondOperand> {
     map(preceded(tag("="), operand_value), with_mode(Mode::Immediate))(input)
 }
 
-fn indirect_operand(input: &str) -> IResult<&str, SecondOperand> {
+fn indirect_operand(input: &str) -> Result<SecondOperand> {
     map(preceded(tag("@"), operand_value), with_mode(Mode::Indirect))(input)
 }
 
-fn direct_operand(input: &str) -> IResult<&str, SecondOperand> {
+fn direct_operand(input: &str) -> Result<SecondOperand> {
     map(operand_value, with_mode(Mode::Direct))(input)
 }
 
-fn operand2(input: &str) -> IResult<&str, SecondOperand> {
+fn operand2(input: &str) -> Result<SecondOperand> {
+    context("second operand",
+        map(
+            separated_pair(
+                alt((
+                    immediate_operand,
+                    indirect_operand,
+                    direct_operand,
+                )),
+                opt(sp),
+                context("index part of the second operand", opt(delimited(
+                    tag("("),
+                    register,
+                    tag(")"),
+                ))),
+            ),
+            |(mut operand, index)| {
+                operand.index = index;
+                operand
+            }
+        ))(input)
+}
+
+fn take_concrete_instruction(input: &str) -> Result<ConcreteInstruction> {
     map(
-        separated_pair(
-            alt((
-                immediate_operand,
-                indirect_operand,
-                direct_operand,
-            )),
+        tuple((
+            take_concrete_opcode,
             sp,
-            opt(delimited(
-                tag("("),
-                register,
-                tag(")"),
-            )),
-        ),
-        |(mut operand, index)| {
-            operand.index = index;
-            operand
+            operand1,
+            opt(sp),
+            tag(","),
+            opt(sp),
+            operand2,
+        )),
+        |tuple| {
+            ConcreteInstruction {
+                label: None,
+                opcode: tuple.0,
+                operand1: tuple.2,
+                operand2: tuple.6,
+            }
         }
     )(input)
 }
 
-fn _take_concrete_instruction(input: &str) -> IResult<&str, ConcreteInstruction> {
-    let (input, opcode) = take_concrete_opcode(input)?;
-
-    let (input, operand1) = operand1(input)?;
-    let (input, _) = preceded(sp, tag(","))(input)?;
-    let (input, operand2) = preceded(sp, operand2)(input)?;
-
-    let (input, _) = preceded(sp, newline)(input)?;
-
-    Ok((input, ConcreteInstruction {
-        label: None,
-        opcode: opcode,
-        operand1,
-        operand2,
-    }))
-}
-
-fn take_concrete_instruction(input: &str) -> IResult<&str, (Option<&str>, ConcreteInstruction)> {
+fn take_instruction(input: &str) -> Result<SymbolicInstruction> {
     alt((
-        map(tuple((take_label, _take_concrete_instruction)), |(l,i)| (Some(l), i)),
-        map(_take_concrete_instruction, |i| (None, i)),
+        map(take_concrete_instruction, SymbolicInstruction::Concrete),
+        map(take_pseudo_instruction, SymbolicInstruction::Pseudo),
     ))(input)
 }
 
-pub fn parse_line(input: &str) -> IResult<&str, Option<SymbolicInstruction>> {
-    let (input, ins) = alt((
-        map(take_pseudo_instruction,   |i|      Some(SymbolicInstruction::Pseudo(i))),
-        map(take_concrete_instruction, |(_l,i)| Some(SymbolicInstruction::Concrete(i))),
-        value(None, tuple((
-                take_while(char::is_whitespace),
-                tag(";"),
-                take_until("\n"),
-        ))),
-        value(None, sp),
-    ))(input)?;
-
-    let (input, _) = tag("\n")(input)?;
-
-    Ok((input, ins))
+fn take_comment(input: &str) -> Result<&str> {
+    preceded(
+        tag(";"),
+        take_till(|c| NEWLINE_CHARACTERS.contains(c)),
+    )(input)
 }
 
-pub fn parse_symbolic_file(input: &str) -> IResult<&str, Program> {
-    fold_many0(
-        parse_line,
-        Program::default(),
-        |mut p, ins| {
-            match ins {
-                Some(SymbolicInstruction::Pseudo(ins)) => p.init_table.push(ins),
-                Some(SymbolicInstruction::Concrete(ins)) => p.instructions.push(ins),
-                None => (),
-            }
+/// Parse a single line of assembly.
+fn take_line(input: &str) -> Result<Option<(Option<&str>, SymbolicInstruction)>> {
+    preceded(
+        opt(sp),
+        terminated(
+            opt(alt((
+                map(
+                    separated_pair(take_label, sp, take_instruction),
+                    |(label, ins)| (Some(label), ins),
+                ),
+                map(take_instruction, |ins| (None, ins)),
+            ))),
+            opt(take_comment),
+        ),
+    )(input)
+}
 
-            p
+fn fold_program(
+    mut program: Program,
+    line: Option<(Option<&str>, SymbolicInstruction)>,
+) -> Program { 
+    match line {
+        Some((label, SymbolicInstruction::Pseudo(ins))) => {
+            let label = label.map(str::to_string);
+            program.init_table.push((label, ins));
+        },
+        Some((label, SymbolicInstruction::Concrete(ins))) => {
+            let label = label.map(str::to_string);
+            program.instructions.push((label, ins));
+        },
+        None => (),
+    }
+
+    program
+}
+
+fn flatten_error(err: nom::Err<ParseError>) -> ParseError {
+    match err {
+        nom::Err::Failure(err) => err,
+        nom::Err::Error(err) => err,
+        nom::Err::Incomplete(_) => ParseError::incomplete(),
+    }
+}
+
+/// Parse a single line of assembly.
+pub fn parse_line(input: &str)
+    -> StdResult<Option<(Option<&str>, SymbolicInstruction)>, ParseError>
+{
+    all_consuming(take_line)(input)
+        .map(|(_input, result)| result)
+        .map_err(flatten_error)
+}
+
+/// Parse an entire assembly program.
+fn take_symbolic_file(input: &str) -> Result<Program> {
+    map(
+        tuple((
+            fold_many0(
+                terminated(take_line, newline),
+                Program::default(),
+                fold_program,
+            ),
+            opt(take_line),
+        )),
+        |(prog, line)| match line {
+            None => prog,
+            Some(line) => fold_program(prog, line),
         },
     )(input)
+}
+
+/// Parse an entier assembly program.
+///
+/// You propably want to use this via [Program::parse](crate::symbolic::Program::parse).
+pub fn parse_symbolic_file(input: &str) -> StdResult<Program, ParseError> {
+    all_consuming(take_symbolic_file)(input)
+        .map(|(_input, result)| result)
+        .map_err(flatten_error)
 }

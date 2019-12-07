@@ -8,7 +8,7 @@ use std::convert::TryInto;
 pub fn compile(symprog: symbolic::Program) -> Program {
     let mut relocation_table = Vec::new();
 
-    for ins in &symprog.instructions {
+    for (label, ins) in &symprog.instructions {
         if let Some(entry) = ins.relocation_symbol() {
             relocation_table.push(entry);
         }
@@ -17,37 +17,44 @@ pub fn compile(symprog: symbolic::Program) -> Program {
     let mut symbol_table = HashMap::new();
     let mut data = Vec::new();
 
-    symbol_table.insert("CRT".to_string(), data.len());
+    symbol_table.insert("CRT".to_string(), data.len() as u16);
     data.push(0);
 
-    symbol_table.insert("HALT".to_string(), data.len());
+    symbol_table.insert("HALT".to_string(), data.len() as u16);
     data.push(11);
 
-    for entry in &symprog.init_table {
+    for (symbol, ins) in &symprog.init_table {
         let addr = data.len();
 
-        for _ in 0..entry.size {
-            data.push(entry.value as u32);
+        for _ in 0..ins.size {
+            data.push(ins.value as u32);
         }
 
-        symbol_table.insert(entry.symbol.clone(), addr);
+        if let Some(symbol) = symbol {
+            symbol_table.insert(symbol.clone(), addr as u16);
+        }
     }
 
     let mut instructions = symprog.instructions
         .iter()
+        .map(|(_label, ins)| ins)
         .cloned()
         .map(Into::into)
         .collect::<Vec<Instruction>>();
 
-    for (i, ins) in symprog.instructions.iter().enumerate() {
+    for (i, (label, ins)) in symprog.instructions.iter().enumerate() {
+        if let Some(label) = label {
+            symbol_table.insert(label.to_string(), i as u16);
+        }
+
         match ins.relocation_symbol() {
             None => {},
             Some(entry) => {
                 let addr = *symbol_table.get(&entry.symbol).unwrap();
 
                 let imm = match entry.kind {
-                    RelocationKind::Address => addr as u16,
-                    RelocationKind::Value => data[addr] as u16,
+                    RelocationKind::Address => addr,
+                    RelocationKind::Value => data[addr as usize] as u16,
                 };
 
                 instructions[i].immediate = imm;
@@ -87,7 +94,7 @@ MAIN 	LOAD 	R1, X
 	    SVC 	SP, =HALT
     "#;
 
-    let (_, program) = parse_symbolic_file(source).unwrap();
+    let program = crate::symbolic::Program::parse(source).unwrap();
     println!("{:?}", program.instructions);
 
     let prog = compile(program);

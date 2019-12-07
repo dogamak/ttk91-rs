@@ -1,4 +1,4 @@
-//! bytecode parsing
+//! Parsing and storing bytecode programs.
 
 mod parser;
 mod program;

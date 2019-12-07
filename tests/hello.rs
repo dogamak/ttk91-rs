@@ -39,6 +39,8 @@ fn compile_program() -> Program {
     let sprog = symbolic::Program::parse(symbolic_source)
         .expect("could not parse hello.k91");
 
+    println!("{:?}", sprog);
+
     sprog.compile()
 }
 

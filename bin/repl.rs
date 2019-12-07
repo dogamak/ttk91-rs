@@ -3,13 +3,14 @@ use std::rc::Rc;
 use std::convert::TryFrom;
 use std::collections::HashMap;
 use std::io::Write;
+use std::str::FromStr;
 
 use ttk91::{
     emulator::{Memory, InputOutput, Emulator, StdIo},
-    instruction::{Instruction},
+    instruction::{Instruction, Register},
     symbolic::{
         parser::{
-            register as parse_register,
+            ParseError,
             parse_line,
         },
         program::{
@@ -192,7 +193,8 @@ impl ::std::fmt::Display for CommandError {
 enum Error {
     MemoryError(MemoryError),
     CommandError(CommandError),
-    InvalidInstruction,
+    ParseError(ParseError),
+    Incomplete,
     UnknownSymbol(String),
 }
 
@@ -201,7 +203,8 @@ impl ::std::fmt::Display for Error {
         match self {
             Error::CommandError(ce) => write!(f, "command error: {}", ce),
             Error::MemoryError(me) => write!(f, "memory error: {}", me),
-            Error::InvalidInstruction => write!(f, "invalid instruction"),
+            Error::ParseError(e) => write!(f, "parse error: {}", e),
+            Error::Incomplete => write!(f, "incomplete input"),
             Error::UnknownSymbol(sym) => write!(f, "unknown symbol: {}", sym),
         }
     }
@@ -210,6 +213,12 @@ impl ::std::fmt::Display for Error {
 impl From<MemoryError> for Error {
     fn from(me: MemoryError) -> Error {
         Error::MemoryError(me)
+    }
+}
+
+impl From<ParseError> for Error {
+    fn from(e: ParseError) -> Error {
+        Error::ParseError(e)
     }
 }
 
@@ -291,8 +300,8 @@ impl REPL {
                 }
             },
             ("reg", [register]) | ("register", [register]) => {
-                let register = match parse_register(register) {
-                    Ok((_rest, register)) => register,
+                let register = match Register::from_str(register) {
+                    Ok(register) => register,
                     Err(_err) => {
                         println!("Invalid register {}", register);
                         return Ok(());
@@ -304,10 +313,9 @@ impl REPL {
                 println!("Register {} = {}", register, value);
             },
             ("print_instruction", _) | ("pi", _) => {
-                let ins = match parse_line(&*format!("{}\n", rest)) {
-                    Ok((_, None)) => return Ok(()),
-                    Ok((_, Some(ins))) => ins,
-                    Err(_err) => return Err(Error::InvalidInstruction),
+                let ins = match parse_line(rest)? {
+                    None => return Ok(()),
+                    Some((_, ins)) => ins,
                 };
 
                 match ins {
@@ -356,7 +364,11 @@ impl REPL {
             match self.handle_line(&input) {
                 Ok(()) => {},
                 Err(err) => {
-                    println!("Error: {}", err);
+                    if let Error::ParseError(err) = err {
+                        eprintln!("Error: {}", err.verbose(&input));
+                    } else {
+                        eprintln!("Error: {}", err);
+                    }
                 },
             }
         }
@@ -368,18 +380,19 @@ impl REPL {
             return Ok(());
         }
 
-        let ins = match parse_line(input) {
-            Ok((_, None)) => return Ok(()),
-            Ok((_, Some(ins))) => ins,
-            Err(_err) => return Err(Error::InvalidInstruction),
+        let (label, ins) = match parse_line(&input[..input.len()-1])? {
+            None => return Ok(()),
+            Some((label, ins)) => (label, ins),
         };
 
         match ins {
             SymbolicInstruction::Pseudo(ins) => {
                 let addr = self.memory.push_data(ins.value)?;
-                self.symbol_table.insert(ins.symbol.clone(), addr);
 
-                println!("Symbol {} at address {}", ins.symbol, addr);
+                if let Some(label) = label {
+                    self.symbol_table.insert(label.to_string(), addr);
+                    println!("Symbol {} at address {}", label, addr);
+                }
             },
             SymbolicInstruction::Concrete(sins) => {
                 let mut ins: Instruction = sins.clone().into();
