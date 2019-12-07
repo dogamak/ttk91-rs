@@ -216,18 +216,11 @@ impl From<MemoryError> for Error {
     }
 }
 
-impl From<nom::Err<ParseError>> for Error {
-    fn from(e: nom::Err<ParseError>) -> Error {
-        use nom::Err;
-
-        match e {
-            Err::Failure(err) => Error::ParseError(err),
-            Err::Error(err) => Error::ParseError(err),
-            Err::Incomplete(_) => Error::Incomplete,
-        }
+impl From<ParseError> for Error {
+    fn from(e: ParseError) -> Error {
+        Error::ParseError(e)
     }
 }
-
 
 impl From<CommandError> for Error {
     fn from(ce: CommandError) -> Error {

@@ -17,7 +17,7 @@ pub enum SymbolicInstruction {
 #[derive(Debug, Clone, Default)]
 pub struct Program {
     pub init_table: Vec<InitializationTableEntry>,
-    pub instructions: Vec<ConcreteInstruction>,
+    pub instructions: Vec<(Option<String>, ConcreteInstruction)>,
 }
 
 #[derive(Debug, Clone)]
@@ -93,12 +93,7 @@ pub struct SecondOperand {
 
 impl Program {
     pub fn parse(s: &str) -> Result<Program, ParseError> {
-        match super::parser::parse_symbolic_file(s) {
-            Ok((_input, program)) => Ok(program),
-            Err(nom::Err::Error(err)) => Err(err),
-            Err(nom::Err::Failure(err)) => Err(err),
-            Err(nom::Err::Incomplete(_)) => Err(ParseError::incomplete()),
-        }
+        super::parser::parse_symbolic_file(s)
     }
 
     pub fn compile(self) -> crate::bytecode::Program {

@@ -8,7 +8,7 @@ use std::convert::TryInto;
 pub fn compile(symprog: symbolic::Program) -> Program {
     let mut relocation_table = Vec::new();
 
-    for ins in &symprog.instructions {
+    for (label, ins) in &symprog.instructions {
         if let Some(entry) = ins.relocation_symbol() {
             relocation_table.push(entry);
         }
@@ -35,11 +35,16 @@ pub fn compile(symprog: symbolic::Program) -> Program {
 
     let mut instructions = symprog.instructions
         .iter()
+        .map(|(_label, ins)| ins)
         .cloned()
         .map(Into::into)
         .collect::<Vec<Instruction>>();
 
-    for (i, ins) in symprog.instructions.iter().enumerate() {
+    for (i, (label, ins)) in symprog.instructions.iter().enumerate() {
+        if let Some(label) = label {
+            symbol_table.insert(label.to_string(), i as u16);
+        }
+
         match ins.relocation_symbol() {
             None => {},
             Some(entry) => {

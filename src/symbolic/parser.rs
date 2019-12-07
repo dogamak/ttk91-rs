@@ -2,7 +2,7 @@ use nom::{
     alt,
     branch::alt,
     bytes::complete::{take_while, take_until, tag},
-    combinator::{value, map, opt, map_res},
+    combinator::{value, map, opt, map_res, all_consuming},
     error::context,
     IResult,
     multi::{fold_many0},
@@ -26,6 +26,7 @@ use super::program::{
 };
 
 use std::fmt;
+use std::result::Result as StdResult;
 
 #[derive(Debug, Clone)]
 pub enum ErrorKind {
@@ -298,7 +299,7 @@ fn operand2(input: &str) -> Result<SecondOperand> {
         ))(input)
 }
 
-fn _take_concrete_instruction(input: &str) -> Result<ConcreteInstruction> {
+fn take_concrete_instruction(input: &str) -> Result<ConcreteInstruction> {
     let (input, opcode) = take_concrete_opcode(input)?;
 
     let (input, operand1) = operand1(input)?;
@@ -315,52 +316,86 @@ fn _take_concrete_instruction(input: &str) -> Result<ConcreteInstruction> {
     }))
 }
 
-fn take_concrete_instruction(input: &str) -> Result<(Option<&str>, ConcreteInstruction)> {
+fn take_instruction(input: &str) -> Result<SymbolicInstruction> {
     alt((
-        map(tuple((take_label, _take_concrete_instruction)), |(l,i)| (Some(l), i)),
-        map(_take_concrete_instruction, |i| (None, i)),
+        map(take_concrete_instruction, SymbolicInstruction::Concrete),
+        map(take_pseudo_instruction, SymbolicInstruction::Pseudo),
     ))(input)
 }
 
-pub fn parse_line(input: &str) -> Result<Option<SymbolicInstruction>> {
-    let (input, _) = sp(input)?;
-
-    map(
-        terminated(
-            opt(
-                alt((
-                    value(None, tuple((
-                            tag(";"),
-                            take_until("\n"),
-                    ))),
-                    map(
-                        context("pseudo instruction", take_pseudo_instruction),
-                        |i| Some(SymbolicInstruction::Pseudo(i)),
-                    ),
-                    map(
-                        context("instruction", take_concrete_instruction),
-                        |(_l,i)| Some(SymbolicInstruction::Concrete(i)),
-                    ),
-                ),
-            )),
-            tag("\n"),
-        ),
-        |opt| opt.and_then(|i| i),
+fn take_comment(input: &str) -> Result<&str> {
+    preceded(
+        tag(";"),
+        take_while(|c| !NEWLINE_CHARACTERS.contains(c)),
     )(input)
 }
 
-pub fn parse_symbolic_file(input: &str) -> Result<Program> {
-    fold_many0(
-        parse_line,
-        Program::default(),
-        |mut p, ins| {
-            match ins {
-                Some(SymbolicInstruction::Pseudo(ins)) => p.init_table.push(ins),
-                Some(SymbolicInstruction::Concrete(ins)) => p.instructions.push(ins),
-                None => (),
-            }
+pub fn take_line(input: &str) -> Result<(Option<&str>, Option<SymbolicInstruction>)> {
+    preceded(
+        sp,
+        terminated(
+            tuple((
+                opt(terminated(take_label, sp)),
+                opt(take_instruction),
+            )),
+            opt(take_comment),
+        ),
+    )(input)
+}
 
-            p
+fn fold_program(
+    mut program: Program,
+    (label, ins): (Option<&str>, Option<SymbolicInstruction>),
+) -> Program { 
+    match ins {
+        Some(SymbolicInstruction::Pseudo(ins)) => {
+            program.init_table.push(ins);
+        },
+        Some(SymbolicInstruction::Concrete(ins)) => {
+            let label = label.map(str::to_string);
+            program.instructions.push((label, ins));
+        },
+        None => (),
+    }
+
+    program
+}
+
+fn flatten_error(err: nom::Err<ParseError>) -> ParseError {
+    match err {
+        nom::Err::Failure(err) => err,
+        nom::Err::Error(err) => err,
+        nom::Err::Incomplete(_) => ParseError::incomplete(),
+    }
+}
+
+pub fn parse_line(input: &str)
+    -> StdResult<(Option<&str>, Option<SymbolicInstruction>), ParseError>
+{
+    all_consuming(take_line)(input)
+        .map(|(_input, result)| result)
+        .map_err(flatten_error)
+}
+
+pub fn take_symbolic_file(input: &str) -> Result<Program> {
+    map(
+        tuple((
+            fold_many0(
+                take_line,
+                Program::default(),
+                fold_program,
+            ),
+            opt(take_line),
+        )),
+        |(prog, line)| match line {
+            None => prog,
+            Some(line) => fold_program(prog, line),
         },
     )(input)
+}
+
+pub fn parse_symbolic_file(input: &str) -> StdResult<Program, ParseError> {
+    all_consuming(take_symbolic_file)(input)
+        .map(|(_input, result)| result)
+        .map_err(flatten_error)
 }
