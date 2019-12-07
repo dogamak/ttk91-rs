@@ -1,3 +1,8 @@
+//! Functions for parsing symbolic assembly programs from strings.
+//!
+//! The only function you problaly are interested in here is [parse_symbolic_file], which
+//! you probably want to use via [Program::parse](crate::symbolic::Program::parse).
+
 use nom::{
     branch::alt,
     bytes::complete::{take_while1, take_while, take_till, tag},
@@ -27,13 +32,15 @@ use super::program::{
 use std::fmt;
 use std::result::Result as StdResult;
 
+/// Represents error conditions specific to symbolic assembly parsing.
 #[derive(Debug, Clone)]
 pub enum ErrorKind {
     OpCode(String),
 }
 
+/// An error which has prevented the input from being parsed successfully.
 pub type ParseError = crate::error::ParseError<ErrorKind>;
-pub type Result<'a,R> = IResult<&'a str, R, ParseError>;
+type Result<'a,R> = IResult<&'a str, R, ParseError>;
 
 impl fmt::Display for ErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -187,6 +194,7 @@ fn take_concrete_opcode(input: &str) -> Result<OpCode> {
     Ok((input, opcode))
 }
 
+/// Parse a register keyword.
 pub fn register(input: &str) -> Result<Register> {
     context("register",
         alt((
@@ -289,8 +297,8 @@ fn take_comment(input: &str) -> Result<&str> {
     )(input)
 }
 
+/// Parse a single line of assembly.
 pub fn take_line(input: &str) -> Result<Option<(Option<&str>, SymbolicInstruction)>> {
-    println!(">> {}", input);
     preceded(
         opt(sp),
         terminated(
@@ -333,6 +341,7 @@ fn flatten_error(err: nom::Err<ParseError>) -> ParseError {
     }
 }
 
+/// Parse a single line of assembly.
 pub fn parse_line(input: &str)
     -> StdResult<Option<(Option<&str>, SymbolicInstruction)>, ParseError>
 {
@@ -341,6 +350,7 @@ pub fn parse_line(input: &str)
         .map_err(flatten_error)
 }
 
+/// Parse an entire assembly program.
 pub fn take_symbolic_file(input: &str) -> Result<Program> {
     map(
         tuple((
@@ -358,6 +368,9 @@ pub fn take_symbolic_file(input: &str) -> Result<Program> {
     )(input)
 }
 
+/// Parse an entier assembly program.
+///
+/// You propably want to use this via [Program::parse](crate::symbolic::Program::parse).
 pub fn parse_symbolic_file(input: &str) -> StdResult<Program, ParseError> {
     all_consuming(take_symbolic_file)(input)
         .map(|(_input, result)| result)

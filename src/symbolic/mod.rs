@@ -1,4 +1,4 @@
-//! symbolic program parsing
+//! Parsing and storing symbolic assembly programs.
 
 pub mod parser;
 pub mod program;

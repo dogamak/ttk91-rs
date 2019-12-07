@@ -8,14 +8,15 @@ use nom::{
     combinator::{map, map_res},
     multi::{many0, fold_many0},
     sequence::{delimited, terminated, tuple, preceded, separated_pair},
-    error::context,
 };
 
 use super::program::{Segment, Program};
 
+/// Represents error specific to bytecode file parsing.
 #[derive(Debug, Clone)]
 pub enum ErrorKind {}
 
+/// Represents an error which has prevented the bytecode file from being parsed.
 pub type ParseError = crate::error::ParseError<ErrorKind>;
 type Result<'a,T> = IResult<&'a str, T, ParseError>;
 

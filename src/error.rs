@@ -20,6 +20,9 @@ impl<Kind: Display> fmt::Display for InnerError<Kind> {
     }
 }
 
+/// Error type that contains the reason of the error and the unconsumed input.
+///
+/// For error location information see [ParseError::verbose].
 #[derive(Clone, Debug)]
 pub struct ParseError<Kind> {
     stack: Vec<(String, InnerError<Kind>)>,
@@ -39,9 +42,14 @@ impl<Kind> ParseError<Kind> {
     }
 }
 
+/// Error type containing location information in addition to the reason of the error.
+/// 
+/// Created from a [ParseError] with [ParseError::verbose].
 #[derive(Clone, Debug)]
 pub struct VerboseParseError<'a, Kind> {
+    /// The line number of the error location.
     pub line: usize,
+    /// The column number of the error location.
     pub column: usize,
     kind: InnerError<Kind>,
     rest: &'a str,
@@ -54,6 +62,11 @@ impl<'a, Kind: Display> fmt::Display for VerboseParseError<'a, Kind> {
 }
 
 impl<Kind> ParseError<Kind> {
+    /// Calculates the error location information from the [ParseError] and the original input
+    /// buffer.
+    ///
+    /// # Parameters
+    /// - `input`: The original input buffer or an exact copy of it.
     pub fn verbose(self, input: &str) -> VerboseParseError<Kind> {
         for (rest, kind) in self.stack {
             let mut line = 1;
