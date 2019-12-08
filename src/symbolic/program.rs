@@ -121,9 +121,7 @@ impl Program {
         compile(self)
     }
 
-    pub fn compile_with_sourcemap(self) -> (crate::bytecode::Program, HashMap<u16, usize>) {
-        use crate::compiler::compile;
-        let (program, source_map): (_, SourceMap<_>) = compile(self);
-        (program, source_map.map)
+    pub fn compile_sourcemap(self) -> SourceMap<crate::bytecode::Program> {
+        crate::compiler::compile(self)
     }
 }

@@ -112,58 +112,57 @@ impl CompileTarget for Program {
     }
 }
 
-pub struct SourceMap<L> {
-    tmp: HashMap<L, usize>,
-    pub map: HashMap<u16, usize>,
+pub struct SourceMap<T: CompileTarget> {
+    pub compiled: T,
+    tmp: HashMap<T::Location, usize>,
+    pub source_map: HashMap<u16, usize>,
 }
 
-impl<T> CompileTarget for (T, SourceMap<T::Location>)
+impl<T> CompileTarget for SourceMap<T>
     where T: CompileTarget,
           T::Location: std::hash::Hash + std::cmp::Eq + Clone,
 {
     type Location = T::Location;
 
     fn create() -> Self {
-        (
-            T::create(),
-            SourceMap {
-                tmp: HashMap::new(),
-                map: HashMap::new(),
-            },
-        )
+        SourceMap {
+            compiled: T::create(),
+            tmp: HashMap::new(),
+            source_map: HashMap::new(),
+        }
     }
 
     fn set_word(&mut self, loc: &Self::Location, word: i32) {
-        self.0.set_word(loc, word);
+        self.compiled.set_word(loc, word);
     }
 
     fn push_word(&mut self, source_line: Option<usize>, word: i32, segment: SegmentType) -> Self::Location {
-        let loc = self.0.push_word(source_line, word, segment);
+        let loc = self.compiled.push_word(source_line, word, segment);
 
         if let Some(line) = source_line {
-            self.1.tmp.insert(loc.clone(), line);
+            self.tmp.insert(loc.clone(), line);
         }
 
         loc
     }
 
     fn new_symbol(&mut self, label: String, loc: &Self::Location) {
-        self.0.new_symbol(label, loc);
+        self.compiled.new_symbol(label, loc);
     }
 
     fn to_address(&self, loc: &Self::Location) -> u16 {
-        self.0.to_address(loc)
+        self.compiled.to_address(loc)
     }
 
     fn finish(mut self) -> Self {
         let mut map = HashMap::new();
 
-        for (loc, source) in self.1.tmp.drain() {
-            let addr = self.0.to_address(&loc);
+        for (loc, source) in self.tmp.drain() {
+            let addr = self.compiled.to_address(&loc);
             map.insert(addr, source);
         }
 
-        self.1.map = map;
+        self.source_map = map;
 
         self
     }
