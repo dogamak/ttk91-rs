@@ -17,11 +17,8 @@ pub fn compile(symprog: symbolic::Program) -> Program {
     let mut symbol_table = HashMap::new();
     let mut data = Vec::new();
 
-    symbol_table.insert("CRT".to_string(), data.len() as u16);
-    data.push(0);
-
-    symbol_table.insert("HALT".to_string(), data.len() as u16);
-    data.push(11);
+    symbol_table.insert("CRT".to_string(), 0);
+    symbol_table.insert("HALT".to_string(), 11);
 
     for (symbol, ins) in &symprog.init_table {
         let addr = data.len();

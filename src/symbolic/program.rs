@@ -41,13 +41,8 @@ impl ConcreteInstruction {
             _ => return None,
         };
 
-        let kind = match self.operand2.mode {
-            Mode::Immediate => RelocationKind::Value,
-            _ => RelocationKind::Address,
-        };
-
         Some(RelocationEntry {
-            kind,
+            kind: RelocationKind::Address,
             symbol,
         })
     }
