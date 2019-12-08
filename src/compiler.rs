@@ -300,14 +300,14 @@ MAIN 	LOAD 	R1, X
     "#;
 
     let program = symbolic::Program::parse(source).unwrap();
-    let prog: (bytecode::Program, SourceMap<(SegmentType, usize)>) = compile(program);
+    let prog: SourceMap<bytecode::Program> = compile(program);
 
-    assert_eq!(prog.1.map.get(&0), Some(&8));
-    assert_eq!(prog.1.map.get(&1), Some(&9));
-    assert_eq!(prog.1.map.get(&2), Some(&10));
-    assert_eq!(prog.1.map.get(&3), Some(&11));
-    assert_eq!(prog.1.map.get(&4), Some(&2));
-    assert_eq!(prog.1.map.get(&5), Some(&3));
+    assert_eq!(prog.source_map.get(&0), Some(&8));
+    assert_eq!(prog.source_map.get(&1), Some(&9));
+    assert_eq!(prog.source_map.get(&2), Some(&10));
+    assert_eq!(prog.source_map.get(&3), Some(&11));
+    assert_eq!(prog.source_map.get(&4), Some(&2));
+    assert_eq!(prog.source_map.get(&5), Some(&3));
 
-    println!("{:?}", prog.1.map);
+    println!("{:?}", prog.compiled);
 }
