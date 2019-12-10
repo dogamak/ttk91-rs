@@ -284,18 +284,22 @@ fn take_concrete_instruction(input: &str) -> Result<ConcreteInstruction> {
         tuple((
             take_concrete_opcode,
             sp,
-            operand1,
-            opt(sp),
-            tag(","),
-            opt(sp),
+            opt(terminated(
+                operand1,
+                tuple((
+                    opt(sp),
+                    tag(","),
+                    opt(sp),
+                )),
+            )),
             operand2,
         )),
         |tuple| {
             ConcreteInstruction {
                 label: None,
                 opcode: tuple.0,
-                operand1: tuple.2,
-                operand2: tuple.6,
+                operand1: tuple.2.unwrap_or(Register::R0),
+                operand2: tuple.3,
             }
         }
     )(input)
