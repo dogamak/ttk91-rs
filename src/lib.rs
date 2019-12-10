@@ -54,7 +54,8 @@
 //!     let memory = compiled.to_words();
 //!
 //!     // Load the bytecode into an emulator which uses the standard output.
-//!     let mut emulator = Emulator::new(memory, StdIo);
+//!     let mut emulator = Emulator::new(memory, StdIo)
+//!         .expect("could not initialize emulator");
 //!
 //!     // Execute the bytecode.
 //!     emulator.run()

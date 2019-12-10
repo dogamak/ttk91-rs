@@ -64,7 +64,8 @@ fn run(file_path: &str) -> Result<(), Error> {
         program = bytecode::Program::parse(&*file)?;
     }
 
-    let mut emulator = Emulator::new(program.to_words(), StdIo);
+    let mut emulator = Emulator::new(program.to_words(), StdIo)
+        .map_err(|_| Error::Execution)?;
 
     emulator.run()
         .map_err(|_| Error::Execution)?;

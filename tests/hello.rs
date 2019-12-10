@@ -50,7 +50,7 @@ fn test_hello_emulate_symbolic_program() {
 
     let mut io = TestIo::new();
 
-    let mut e = Emulator::new(p.to_words(), &mut io);
+    let mut e = Emulator::new(p.to_words(), &mut io).unwrap();
 
     while !e.halted {
         println!("{:?}", e.get_current_instruction());
@@ -75,7 +75,7 @@ fn test_hello_emulate_program() {
 
     let mut io = TestIo::new();//with_input(input);
 
-    let mut e = Emulator::new(p.to_words(), &mut io);
+    let mut e = Emulator::new(p.to_words(), &mut io).unwrap();
 
     while !e.halted {
         println!("{:?}", e.get_current_instruction());
