@@ -20,6 +20,9 @@ pub fn compile(symprog: symbolic::Program) -> Program {
     symbol_table.insert("CRT".to_string(), data.len() as u16);
     data.push(0);
 
+    symbol_table.insert("KBD".to_string(), data.len() as u16);
+    data.push(0);
+
     symbol_table.insert("HALT".to_string(), data.len() as u16);
     data.push(11);
 
