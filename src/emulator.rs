@@ -219,9 +219,7 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
                 self.emulator.context.r[reg.index()] = value as u16;
             },
             (Mode::Indirect, 0, reg) if reg != R0 => {
-                println!("Indirect register!");
                 let addr = self.emulator.context.r[reg.index()];
-                println!("Store {} to {}", value, addr);
                 self.emulator.memory.set_data(addr, value as u16)?;
             },
             (Mode::Direct, mut addr, reg) => {
@@ -344,7 +342,6 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
 
             OpCode::Pop => {
                 let value = self.pop_stack()?;
-                println!("Pop value: {}", value);
                 self.set_second_operand(value)?;
             },
 
@@ -373,7 +370,6 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
 
             OpCode::Exit => {
                 let addr = self.pop_stack()?;
-                println!("Ret: {}", addr);
                 self.emulator.context.pc = addr as u16;
             },
 
