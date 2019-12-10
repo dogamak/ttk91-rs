@@ -4,6 +4,7 @@ use std::convert::TryFrom;
 use std::collections::HashMap;
 use std::io::Write;
 use std::str::FromStr;
+use std::ops::RangeInclusive;
 
 use ttk91::{
     emulator::{Memory, InputOutput, Emulator, StdIo},
@@ -68,6 +69,7 @@ impl std::fmt::Display for MemoryError {
 struct SharedMemory {
     instructions: Arc<Mutex<Vec<u32>>>,
     data: Arc<Mutex<Vec<i32>>>,
+    stack: Arc<Mutex<Vec<i32>>>,
 }
 
 impl SharedMemory {
@@ -75,6 +77,7 @@ impl SharedMemory {
         SharedMemory {
             instructions: Arc::new(Mutex::new(Vec::new())),
             data: Arc::new(Mutex::new(Vec::new())),
+            stack: Arc::new(Mutex::new(vec![0; 16])),
         }
     }
 
@@ -105,8 +108,22 @@ impl SharedMemory {
     }
 }
 
+const STACK_BASE_ADDRESS: u16 = 0x7FFF;
+
 impl Memory for SharedMemory {
     type Error = MemoryError;
+
+    fn stack_address_range(&self) -> Result<RangeInclusive<u16>, Self::Error> {
+        let size = self.stack.lock()?.len() as u16;
+        Ok((STACK_BASE_ADDRESS-size)..=(STACK_BASE_ADDRESS))
+    }
+
+    fn grow_stack(&mut self, amount: u16) -> Result<(), Self::Error> {
+        self.stack.lock()?
+            .extend(std::iter::repeat(0).take(amount as usize));
+
+        Ok(())
+    }
 
     fn get_instruction(&mut self, addr: u16) -> Result<Instruction, Self::Error> {
         if addr & 0x8000 == 0 {
@@ -142,16 +159,20 @@ impl Memory for SharedMemory {
             });
         }
 
-        let addr = addr & 0x7FFF;
+        let stack = self.stack_address_range()?;
 
-        match self.data.lock() {
-            Err(e) => Err(MemoryError::ConcurrencyError),
-            Ok(guard) => {
-                match guard.get(addr as usize) {
-                    None => Err(MemoryError::InvalidAddress { address: addr }),
-                    Some(word) => Ok(*word as u16),
-                }
-            },
+        if stack.contains(&addr) {
+            let address = stack.end() - (addr & 0x7FFF);
+            let guard = self.stack.lock()?;
+            guard.get(address as usize)
+                .map(|w| *w as u16)
+                .ok_or(MemoryError::InvalidAddress { address })
+        } else {
+            let address = addr & 0x7FFF;
+            let guard = self.data.lock()?;
+            guard.get(address as usize)
+                .map(|w| *w as u16)
+                .ok_or(MemoryError::InvalidAddress { address })
         }
     }
 
@@ -163,15 +184,20 @@ impl Memory for SharedMemory {
             });
         }
 
-        let addr = addr & 0x7FFF;
+        let stack = self.stack_address_range()?;
 
-        match self.instructions.lock() {
-            Err(e) => Err(MemoryError::ConcurrencyError),
-            Ok(mut guard) => {
-                guard[addr as usize] = data as u32;
-                Ok(())
-            },
+        if stack.contains(&addr) {
+            let addr = stack.end() - (addr & 0x7FFF);
+            let mut guard = self.stack.lock()?;
+            guard[addr as usize] = data as i32;
+        } else {
+            let addr = addr & 0x7FFF;
+            let mut guard = self.data.lock()?;
+            println!("Addr: {}", addr);
+            guard[addr as usize] = data as i32;
         }
+
+        Ok(())
     }
 }
 
@@ -235,7 +261,7 @@ struct REPL {
 }
 
 impl REPL {
-    fn new() -> REPL {
+    fn new() -> Result<REPL, MemoryError> {
         let memory = SharedMemory::new();
 
         let mut symbol_table = HashMap::new();
@@ -243,14 +269,14 @@ impl REPL {
         symbol_table.insert("CRT".into(), 0);
         symbol_table.insert("HALT".into(), 11);
 
-        let mut emulator = Emulator::new(memory.clone(), StdIo);
+        let mut emulator = Emulator::new(memory.clone(), StdIo)?;
         emulator.context.pc = 0x8000;
 
-        REPL {
+        Ok(REPL {
             memory,
             symbol_table,
             emulator,
-        }
+        })
     }
 
     fn handle_command(&mut self, command: &str) -> Result<(), Error> {
@@ -428,6 +454,6 @@ impl REPL {
 }
 
 fn main() {
-    let mut repl = REPL::new();
+    let mut repl = REPL::new().unwrap();
     repl.run();
 }
