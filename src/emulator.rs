@@ -848,3 +848,45 @@ fn test_stack_grow() {
         cycles += 1;
     }
 }
+
+#[test]
+fn test_stack_push_pop_registers() {
+    let program = crate::symbolic::Program::parse(r#"
+        PUSHR SP, =0
+        COMP  R1, =0
+        LOAD  R2, =0
+        LOAD  R3, =0
+        LOAD  R4, =0
+        LOAD  R5, =0
+        LOAD  R6, =0
+        POPR  SP, =0
+        SVC   SP, =HALT
+    "#).expect("could not parse program");
+
+    let program = program.compile();
+    let mut memory = FixedMemory::new(128, 32);
+    memory.load(program);
+
+    let mut emulator = Emulator::new(memory, TestIo::new())
+        .expect("could not initialize emulator");
+
+    // Register R7 is the stack pointer and canot be changed if we want to keep the stack
+    // functional.
+    for i in 0..7 {
+        emulator.context.r[i] = i as u16;
+    }
+
+    emulator.context.flags.from_word(0b111);
+    
+    while !emulator.halted {
+        println!("{:?}", emulator.get_current_instruction());
+        emulator.step()
+            .expect("error while executing the program");
+        println!("{:?}", emulator.context);
+    }
+
+    for i in 0..7 {
+        assert_eq!(emulator.context.r[i], i as u16);
+    }
+    assert_eq!(emulator.context.flags.as_word(), 0b111);
+}
