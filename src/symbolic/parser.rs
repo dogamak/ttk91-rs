@@ -331,7 +331,7 @@ fn take_line(input: &str) -> Result<Option<(Option<&str>, SymbolicInstruction)>>
                 ),
                 map(take_instruction, |ins| (None, ins)),
             ))),
-            opt(take_comment),
+            opt(preceded(opt(sp), take_comment)),
         ),
     )(input)
 }
