@@ -2,6 +2,7 @@
 
 use std::convert::TryInto;
 use std::cmp::Ordering;
+use std::io::Read;
 
 use crate::instruction::{Instruction, OpCode, Mode, JumpCondition, Register};
 
@@ -418,14 +419,40 @@ impl InputOutput for &mut TestIo {
 /// - `0`, which prints the data as numbers to the terminal standard output.
 /// - `1`, which prints the data as an unicode character to the terminal standard ourput.
 ///
-/// All input operations return 0 for now.
+/// And two input devices:
+/// - `0`, which reads an integer from the terminal.
+/// - `1`, which reads a single byte from the terminal.
+///
+/// All other input deivices return 0.
+/// If an error occurs while reading from an input device, the device will return 0xFFFF.
 ///
 /// A supervisor call is a no-op.
 pub struct StdIo;
 
 impl InputOutput for StdIo {
-    fn input(&mut self, _device: u16) -> u16 {
-        0
+    fn input(&mut self, device: u16) -> u16 {
+        match device {
+            0 => {
+                let mut line = String::new();
+
+                std::io::stdin().read_line(&mut line)
+                    .expect("could not read from standard input");
+
+                line[..line.len()-1]
+                    .parse()
+                    .unwrap_or(0xFFFF)
+            },
+            1 => {
+                std::io::stdin()
+                    .bytes()
+                    .next()
+                    .transpose()
+                    .unwrap_or(None)
+                    .map(|byte| byte as u16)
+                    .unwrap_or(0xFFFF)
+            },
+            _ => 0,
+        }
     }
 
     fn output(&mut self, device: u16, data: u16) {
