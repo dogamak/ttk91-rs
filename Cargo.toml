@@ -9,10 +9,18 @@ edition = "2018"
 [[bin]]
 name = "ttk91repl"
 path = "bin/repl.rs"
+required-features = ["ttk91repl"]
 
 [[bin]]
 name = "ttk91run"
 path = "bin/run.rs"
+required-features = ["ttk91run"]
+
+[features]
+tools = ["ttk91repl", "ttk91run"]
+ttk91run = ["clap"]
+ttk91repl = []
 
 [dependencies]
 nom = "5"
+clap = { version = "^2.33", optional = true }
