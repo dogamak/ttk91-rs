@@ -287,18 +287,22 @@ fn take_concrete_instruction(input: Span) -> Result<ConcreteInstruction> {
         tuple((
             take_concrete_opcode,
             sp,
-            operand1,
-            opt(sp),
-            tag(","),
-            opt(sp),
+            opt(terminated(
+                operand1,
+                tuple((
+                    opt(sp),
+                    tag(","),
+                    opt(sp),
+                )),
+            )),
             operand2,
         )),
         |tuple| {
             ConcreteInstruction {
                 label: None,
                 opcode: tuple.0,
-                operand1: tuple.2,
-                operand2: tuple.6,
+                operand1: tuple.2.unwrap_or(Register::R0),
+                operand2: tuple.3,
             }
         }
     )(input)
@@ -320,21 +324,23 @@ fn take_comment(input: Span) -> Result<Span> {
 
 /// Parse a single line of assembly.
 fn take_line(input: Span) -> Result<(u32, Option<(Option<Span>, SymbolicInstruction)>)> {
-    map(
-        preceded(
-            opt(sp),
-            terminated(
-                opt(alt((
-                    map(
-                        separated_pair(take_label, sp, take_instruction),
-                        |(label, ins)| (Some(label), ins),
-                    ),
-                    map(take_instruction, |ins| (None, ins)),
-                ))),
-                opt(take_comment),
+    preceded(
+        opt(sp),
+        terminated(
+            map(
+                opt(
+                    alt((
+                        map(
+                            separated_pair(take_label, sp, take_instruction),
+                            |(label, ins)| (Some(label), ins),
+                        ),
+                        map(take_instruction, |ins| (None, ins)),
+                    ))
+                ),
+                |line| (input.line, line)
             ),
+            opt(preceded(opt(sp), take_comment)),
         ),
-        |line| (input.line, line),
     )(input)
 }
 

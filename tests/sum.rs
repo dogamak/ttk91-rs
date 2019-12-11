@@ -7,7 +7,7 @@ use ttk91::{
 fn read_program() -> Program {
     let bytecode_file = include_str!("sum.b91");
 
-    Program::parse_bytecode(bytecode_file).unwrap()
+    Program::parse(bytecode_file).unwrap()
 }
 
 #[test]
@@ -54,7 +54,7 @@ fn test_sum_emulate_program() {
     for (input, output) in cases {
         let mut io = TestIo::with_input(input);
 
-        let mut e = Emulator::new(m.clone(), &mut io);
+        let mut e = Emulator::new(m.clone(), &mut io).unwrap();
 
         while !e.halted {
             println!("{:?}", e.get_current_instruction());

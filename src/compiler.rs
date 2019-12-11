@@ -224,6 +224,7 @@ pub fn compile<T: CompileTarget>(symprog: symbolic::Program) -> T {
     for (label, locs) in relocation_table {
         let addr = match label.as_str() {
             "CRT" => 0,
+            "KBD" => 0,
             "HALT" => 11,
             _ => {
                 let sym_loc = symbol_table.get(&label).unwrap();

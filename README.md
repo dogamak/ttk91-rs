@@ -46,7 +46,7 @@ fn main() {
 
 ## Executables
 
-### `tkk91repl`
+### `ttk91repl`
 The `ttk91repl` provides a Read-Execute-Print-Loop environment for the TTK91 symbolic assembly
 language. It supports alternating between writing and executing code and provides multiple
 commands suitable for debugging.
@@ -65,3 +65,13 @@ Register R1 = 5
 1
 0x8004> 
 ```
+
+### `ttk91run`
+Runs TTK91 programs with input and output piped to standard streams.
+If the supplied file contains assembly, compiles it to bytecode before executing it.
+
+```shell
+$ ttk91run tests/hello.b91
+28
+```
+

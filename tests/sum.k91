@@ -1,9 +1,9 @@
 ; sum - laske annettuja lukuja yhteen kunnes nolla annettu
 
-Luku 	DC 0	; nykyinen luku
-Summa 	DC 0  ; nykyinen summa
+Luku  DC    0           ; nykyinen luku
+Summa DC    0           ; nykyinen summa
 
-Sum   IN    R1, =KBD	; ohjelma alkaa k‰skyst‰ 0
+Sum   IN    R1, =KBD	; ohjelma alkaa k√§skyst√§ 0
       STORE R1, Luku
       JZER  R1, Done    ; luvut loppu?
 	
@@ -17,4 +17,3 @@ Done  LOAD  R1, Summa   ; tulosta summa ja lopeta
       OUT   R1, =CRT
 
       SVC   SP, =HALT
-	
