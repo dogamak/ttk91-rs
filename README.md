@@ -73,7 +73,5 @@ If the supplied file contains assembly, compiles it to bytecode before executing
 ```shell
 $ ttk91run tests/hello.b91
 28
-$ ttk91run tests/hello.k91
-28
 ```
 
