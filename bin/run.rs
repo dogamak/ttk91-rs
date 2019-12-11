@@ -32,7 +32,7 @@ fn parse_arguments() -> ArgMatches<'static> {
         .author("Mitja Karhusaari <mitja@karhusaari.me>")
         .about("Utility for compiling and executing TTK91 programs")
         .arg(Arg::with_name("source")
-             .help("File containing assemby source or bytecode")
+             .help("File containing assembly source or bytecode")
              .value_name("SOURCE")
              .required(true)
              .index(1))
