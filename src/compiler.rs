@@ -1,3 +1,5 @@
+//! Compilation from assembly source to bytecode.
+
 use crate::symbolic::{
     self,
     program::{
@@ -11,37 +13,69 @@ use crate::instruction::Instruction;
 use std::collections::HashMap;
 use std::convert::TryInto;
 
+/// Represents the type of a memory segment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SegmentType {
+    /// Segment that contains program instructions.
+    /// Pushed words are guaranteed to be in consecutive addresses.
     Text,
+
+    /// Segment that contains data.
+    /// Pushed words have no guarantee about their location.
     Data,
 }
 
+/// Defines an interface for a data structure into which bytecode can be compiled.
 pub trait CompileTarget: Sized {
+    /// Represents a position in the data structure.
+    /// This should not change even if new instructions or data is pushed to the data structure.
+    /// The actual address of this location in the produced memory dump can change.
     type Location: Clone;
 
+    /// Create an empty instance of itself.
     fn create() -> Self;
 
+    /// Create an empty instance of itself with reserved capacity for `size` words of data.
+    /// This is just a request or a hint, so this doesn't need to be actually implemented if
+    /// the data structure doesn't support this.
+    ///
+    /// The provided default implementation is a call to [CompileTarget::create].
     fn with_capacity(_size: u16) -> Self {
         Self::create()
     }
 
+    /// Finalize the compilation.
+    /// The compiler will not modify the data structure after this.
     fn finish(self) -> Self {
         self
     }
 
+    /// Sets the word in the location `addr` to value `word`.
     fn set_word(&mut self, addr: &Self::Location, word: i32);
+
+    /// Pushes a new word to the data structure.
+    /// The only requirement for the location of the word is that words pushed with segment type
+    /// [SegmentType::Text] need to be in consecutive addresses.
+    ///
+    /// # Parameters
+    /// - `source_line`: The line number of the instruction in the symbolic assembly source.
+    /// - `word`: Value for the word.
+    /// - `segment`: Type of the data. Affects the words location in the memory dump.
     fn push_word(&mut self, source_line: Option<usize>, word: i32, segment: SegmentType) -> Self::Location;
+
+    /// Declares a new symbol with label `label` in location `address`.
     fn new_symbol(&mut self, label: String, address: &Self::Location);
+
+    /// Translates the location `loc` into a word offset in the memory dump.
+    /// The location can change after calls to [push_word](CompileTarget::push_word).
     fn to_address(&self, loc: &Self::Location) -> u16;
 }
 
 impl Program {
     fn move_symbols_after(&mut self, addr: u16) {
-        for (key, value) in self.symbol_table.iter_mut() {
+        for (_key, value) in self.symbol_table.iter_mut() {
             if *value >= addr {
                 *value += 1;
-                println!("Moved symbol '{}' from {} to {}", key, *value - 1, value);
             }
         }
     }
@@ -112,9 +146,17 @@ impl CompileTarget for Program {
     }
 }
 
+/// Captures line number information produced during the compilation process
+/// and produces a mapping from memory locations into source assembly line numbers.
+///
+/// Line numbers for both instructions and symbols are included.
 pub struct SourceMap<T: CompileTarget> {
+    /// The actual artifact of the compilation.
     pub compiled: T,
+
     tmp: HashMap<T::Location, usize>,
+
+    /// Map from memory locations into source assembly line numbers.
     pub source_map: HashMap<u16, usize>,
 }
 
@@ -168,6 +210,9 @@ impl<T> CompileTarget for SourceMap<T>
     }
 }
 
+/// Compiles the given assembly program into bytecode.
+/// Supports compilation into multiple data structures, but most often the compilation target is
+/// [crate::bytecode::Program] possibly in combination with [SourceMap].
 pub fn compile<T: CompileTarget>(symprog: symbolic::Program) -> T {
     let mut target = T::create();
 
