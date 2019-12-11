@@ -627,14 +627,16 @@ impl InputOutput for StdIo {
     fn supervisor_call(&mut self, _code: u16) {}
 }
 
+/// Represents a failed memory operation.
 #[derive(Clone, Debug)]
-struct MemoryError {
+pub struct MemoryError {
     address: u16,
     kind: MemoryErrorKind,
 }
 
+/// Describes the cause of the memroy operation failure.
 #[derive(Debug, Clone, Copy)]
-enum MemoryErrorKind {
+pub enum MemoryErrorKind {
     InvalidAddress,
     IllegalAccess,
 }
@@ -697,13 +699,14 @@ impl FixedMemory {
     }
 }
 
-struct BalloonMemory {
+/// Virtual memory with growable stack.
+pub struct BalloonMemory {
     program: Vec<i32>,
     stack: Vec<i32>,
 }
 
 impl BalloonMemory {
-    fn new(program: crate::bytecode::Program) -> BalloonMemory {
+    pub fn new(program: crate::bytecode::Program) -> BalloonMemory {
         BalloonMemory {
             program: program
                 .to_words()
