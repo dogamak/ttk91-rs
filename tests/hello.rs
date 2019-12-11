@@ -8,7 +8,7 @@ use ttk91::{
 fn read_program() -> Program {
     let bytecode_file = include_str!("hello.b91");
 
-    Program::parse_bytecode(bytecode_file).unwrap()
+    Program::parse(bytecode_file).unwrap()
 }
 
 #[test]

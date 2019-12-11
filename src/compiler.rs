@@ -18,6 +18,7 @@ pub fn compile(symprog: symbolic::Program) -> Program {
     let mut data = Vec::new();
 
     symbol_table.insert("CRT".to_string(), 0);
+    symbol_table.insert("KBD".to_string(), 0);
     symbol_table.insert("HALT".to_string(), 11);
 
     for (symbol, ins) in &symprog.init_table {
@@ -39,11 +40,13 @@ pub fn compile(symprog: symbolic::Program) -> Program {
         .map(Into::into)
         .collect::<Vec<Instruction>>();
 
-    for (i, (label, ins)) in symprog.instructions.iter().enumerate() {
+    for (i, (label, _ins)) in symprog.instructions.iter().enumerate() {
         if let Some(label) = label {
-            symbol_table.insert(label.to_string(), i as u16);
+            symbol_table.insert(label.to_string(), (data.len() + i) as u16);
         }
+    }
 
+    for (i, (_label, ins)) in symprog.instructions.iter().enumerate() {
         match ins.relocation_symbol() {
             None => {},
             Some(entry) => {
