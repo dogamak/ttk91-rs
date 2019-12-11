@@ -177,68 +177,82 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
 {
     /// Returns value of the first operand.
     fn first_operand(&self) -> u16 {
-        self.emulator.context.r[self.instruction.register.index() as usize]
+        self.get_register_value(self.instruction.register)
     }
 
     /// Sets the value of the first operand.
     fn set_first_operand(&mut self, value: u16) {
-        self.emulator.context.r[self.instruction.register.index() as usize] = value;
+        self.set_register_value(self.instruction.register, value);
+    }
+
+    fn get_register_value(&self, reg: Register) -> u16 {
+        if reg == Register::R0 {
+            return 0;
+        } else {
+            self.emulator.context.r[reg.index() as usize]
+        }
+    }
+
+    fn set_register_value(&mut self, reg: Register, value: u16) {
+        if reg == Register::R0 {
+            panic!("Cannot move data to register R0")
+        } else {
+            self.emulator.context.r[reg.index() as usize] = value;
+        }
     }
 
     /// Resolves the second operand and returns it's value.
     fn second_operand(&mut self) -> Result<u16, M::Error> {
-        if self.instruction.immediate == 0 && self.instruction.index_register != Register::R0 {
-            return Ok(self.emulator.context.r[self.instruction.index_register.index() as usize]);
+        use Mode::*;
+
+        match (self.instruction.mode, self.instruction.immediate, self.instruction.index_register) {
+            // Symbolic: =1234
+            (Immediate, imm, _reg) => Ok(imm),
+
+            // Symbolic: R2
+            (Direct, 0, reg) => Ok(self.get_register_value(reg)),
+
+            // Symbolic: var(R2)
+            (Direct, imm, reg) => {
+                let index = self.get_register_value(reg);
+                self.emulator.memory.get_data(imm + index)
+            },
+
+            // Symbolic: @R2
+            (Indirect, 0, reg) => {
+                let addr = self.get_register_value(reg);
+                self.emulator.memory.get_data(addr)
+            },
+
+            // Symbolic: @var(R2)
+            (Indirect, imm, reg) => {
+                let index = self.get_register_value(reg);
+                let addr = self.emulator.memory.get_data(imm)?;
+                self.emulator.memory.get_data(addr + index)
+            },
         }
-
-        let indirection = match self.instruction.mode {
-            Mode::Immediate => 0,
-            Mode::Direct => 1,
-            Mode::Indirect => 2,
-        };
-
-        let mut value = self.instruction.immediate;
-
-        if self.instruction.index_register != Register::R0 {
-            value += self.emulator.context.r[self.instruction.index_register.index() as usize];
-        }
-
-        for _ in 0..indirection {
-            value = self.emulator.memory.get_data(value)?;
-        }
-
-        Ok(value)
     }
 
     fn set_second_operand(&mut self, value: i32) -> Result<(), M::Error> {
         use Mode::*;
-        use Register::*;
 
         match (self.instruction.mode, self.instruction.immediate, self.instruction.index_register) {
-            (Mode::Immediate, _, _) => panic!("No such thing as a store to an immediate value!"),
-            (Mode::Direct, 0, reg) if reg != R0 => {
-                self.emulator.context.r[reg.index()] = value as u16;
+            (Immediate, _, _) => panic!("No such thing as a store to an immediate value!"),
+            (Direct, 0, reg) => {
+                self.set_register_value(reg, value as u16);
             },
-            (Mode::Indirect, 0, reg) if reg != R0 => {
+            (Direct, addr, reg) => {
+                let index = self.get_register_value(reg);
+                self.emulator.memory.set_data(addr + index, value as u16)?;
+            },
+            (Indirect, 0, reg) => {
                 let addr = self.emulator.context.r[reg.index()];
                 self.emulator.memory.set_data(addr, value as u16)?;
             },
-            (Mode::Direct, mut addr, reg) => {
-                if reg != R0 {
-                    addr += self.emulator.context.r[reg.index()];
-                }
-
-                self.emulator.memory.set_data(addr, value as u16)?;
-            },
-            (Mode::Indirect, addr, reg) => {
-                let mut addr = self.emulator.memory.get_data(addr)?;
-
-                if reg != R0 {
-                    addr += self.emulator.context.r[reg.index()];
-                }
-
-
-                self.emulator.memory.set_data(addr, value as u16)?;
+            (Indirect, addr, reg) => {
+                let addr = self.emulator.memory.get_data(addr)?;
+                let index = self.get_register_value(reg);
+                self.emulator.memory.set_data(addr + index, value as u16)?;
             },
         }
 
@@ -419,7 +433,7 @@ pub struct Emulator<Mem, IO> {
     pub context: Context,
 
     /// Interface for doing IO operations and supervisor calls.
-    io: IO,
+    pub io: IO,
 
     /// True if the execution has been halted.
     pub halted: bool,
@@ -462,9 +476,6 @@ impl<Mem, IO> Emulator<Mem, IO> where Mem: Memory, IO: InputOutput {
     /// # Errors
     /// Returns a memory error if the instruction tries to execute an illegal memory operation.
     pub fn emulate_instruction(&mut self, ins: &Instruction) -> Result<(), Mem::Error> {
-        //let mut first_operand = self.context.r[ins.register.index()];
-        //let second_operand = self.resolve_operand(&ins)?;
-
         let mut ctx = InstructionEmulationContext {
             emulator: self,
             instruction: ins,
@@ -616,14 +627,16 @@ impl InputOutput for StdIo {
     fn supervisor_call(&mut self, _code: u16) {}
 }
 
+/// Represents a failed memory operation.
 #[derive(Clone, Debug)]
-struct MemoryError {
+pub struct MemoryError {
     address: u16,
     kind: MemoryErrorKind,
 }
 
+/// Describes the cause of the memroy operation failure.
 #[derive(Debug, Clone, Copy)]
-enum MemoryErrorKind {
+pub enum MemoryErrorKind {
     InvalidAddress,
     IllegalAccess,
 }
@@ -686,13 +699,14 @@ impl FixedMemory {
     }
 }
 
-struct BalloonMemory {
+/// Virtual memory with growable stack.
+pub struct BalloonMemory {
     program: Vec<i32>,
     stack: Vec<i32>,
 }
 
 impl BalloonMemory {
-    fn new(program: crate::bytecode::Program) -> BalloonMemory {
+    pub fn new(program: crate::bytecode::Program) -> BalloonMemory {
         BalloonMemory {
             program: program
                 .to_words()
@@ -819,10 +833,10 @@ fn test_stack_procedures() {
     let program = crate::symbolic::Program::parse(r#"
     var1    DC 0
 
-    main    CALL  SP, =0x0003
+    main    CALL  SP, =proc
             SVC   SP, =HALT
 
-            LOAD  R1, =1234
+    proc    LOAD  R1, =1234
             STORE R1, =var1
             EXIT  SP, =0xABCD
     "#).unwrap();

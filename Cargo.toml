@@ -23,4 +23,5 @@ ttk91repl = []
 
 [dependencies]
 nom = "5"
+nom_locate = "1"
 clap = { version = "^2.33", optional = true }

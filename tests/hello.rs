@@ -48,6 +48,10 @@ fn compile_program() -> Program {
 fn test_hello_emulate_symbolic_program() {
     let p = compile_program();
 
+    for word in &p.clone().to_words() {
+        println!("W> {:b}", word);
+    }
+
     let mut io = TestIo::new();
 
     let mut e = Emulator::new(p.to_words(), &mut io).unwrap();

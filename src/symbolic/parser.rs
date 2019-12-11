@@ -23,6 +23,7 @@ use crate::instruction::{
 use super::program::{
     ConcreteInstruction,
     PseudoInstruction,
+    InstructionEntry,
     Program,
     SecondOperand,
     SymbolicInstruction,
@@ -38,9 +39,11 @@ pub enum ErrorKind {
     OpCode(String),
 }
 
+type Span<'a> = nom_locate::LocatedSpan<&'a str>;
+
 /// An error which has prevented the input from being parsed successfully.
 pub type ParseError = crate::error::ParseError<ErrorKind>;
-type Result<'a,R> = IResult<&'a str, R, ParseError>;
+type Result<'a,R> = IResult<Span<'a>, R, ParseError>;
 
 impl fmt::Display for ErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -51,7 +54,7 @@ impl fmt::Display for ErrorKind {
 }
 
 
-fn take_i32(input: &str) -> Result<i32> {
+fn take_i32(input: Span) -> Result<i32> {
     map(
         tuple((
             opt(alt((tag("+"), tag("-")))),
@@ -61,17 +64,17 @@ fn take_i32(input: &str) -> Result<i32> {
                         tag("0x"),
                         take_while1(|c: char| c.is_digit(16)),
                     ),
-                    |n| i32::from_str_radix(n, 16)
+                    |s: Span| i32::from_str_radix(s.fragment, 16)
                 ),
                 map_res(
                     take_while1(|c: char| c.is_digit(10)),
-                    |n| i32::from_str_radix(n, 10)
+                    |s: Span| i32::from_str_radix(s.fragment, 10)
                 ),
             )),
         )),
         |(sign, number)| match sign {
-            Some("-") => -number,
-            Some(_) | None => number,
+            Some(s) if s.fragment == "-" => -number,
+            _ => number,
         }
     )(input)
 }
@@ -79,15 +82,15 @@ fn take_i32(input: &str) -> Result<i32> {
 const SPACE_CHARACTERS: &'static str = " \t";
 const NEWLINE_CHARACTERS: &'static str = "\r\n";
 
-fn sp(input: &str) -> Result<&str> {
+fn sp(input: Span) -> Result<Span> {
     take_while1(|c| SPACE_CHARACTERS.contains(c))(input)
 }
 
-fn newline(input: &str) -> Result<&str> {
+fn newline(input: Span) -> Result<Span> {
     take_while1(|c| NEWLINE_CHARACTERS.contains(c))(input)
 }
 
-fn take_label(input: &str) -> Result<&str> {
+fn take_label(input: Span) -> Result<Span> {
     take_while(char::is_alphanumeric)(input)
 }
 
@@ -101,14 +104,14 @@ fn take_label(input: &str) -> Result<&str> {
     )(input)
 }*/
 
-fn take_pseudo_instruction(input: &str) -> Result<PseudoInstruction> {
+fn take_pseudo_instruction(input: Span) -> Result<PseudoInstruction> {
     //let (input, label) = take_label(input)?;
     //let (input, _) = opt(sp)(input)?;
 
     let parse_value = map(take_i32, |x| (1, x));
     let parse_size  = map(take_i32, |x| (x as u16, 0));
 
-    println!("TPI>> {}", input);
+    println!("TPI>> {}", input.fragment);
 
     let (input, (_kind, (size, value))) = alt((
             separated_pair(tag("EQU"), sp, &parse_value),
@@ -122,7 +125,7 @@ fn take_pseudo_instruction(input: &str) -> Result<PseudoInstruction> {
     }))
 }
 
-fn jump_instruction(input: &str) -> Result<OpCode> {
+fn jump_instruction(input: Span) -> Result<OpCode> {
     let (input, _) = tag("J")(input)?;
     let (input, negated) = map(opt(tag("N")), |o| o.is_some())(input)?;
 
@@ -140,12 +143,12 @@ fn jump_instruction(input: &str) -> Result<OpCode> {
     Ok((input, OpCode::Jump { negated, condition }))
 }
 
-fn take_concrete_opcode(input: &str) -> Result<OpCode> {
+fn take_concrete_opcode(input: Span) -> Result<OpCode> {
     let orig_input = input;
 
     let (input, opcode) = take_while(|c: char| !c.is_whitespace())(input)?;
 
-    let opcode = match opcode {
+    let opcode = match opcode.fragment {
         "NOP"   => OpCode::NoOperation,
         "STORE" => OpCode::Store,
         "LOAD"  => OpCode::Load,
@@ -195,7 +198,7 @@ fn take_concrete_opcode(input: &str) -> Result<OpCode> {
 }
 
 /// Parse a register keyword.
-fn register(input: &str) -> Result<Register> {
+fn register(input: Span) -> Result<Register> {
     context("register",
         alt((
             value(Register::R1, tag("R1")),
@@ -227,12 +230,12 @@ impl std::str::FromStr for Register {
     }
 }
 
-fn operand1(input: &str) -> Result<Register> {
+fn operand1(input: Span) -> Result<Register> {
     register(input)
 }
 
 
-fn operand_value(input: &str) -> Result<Value> {
+fn operand_value(input: Span) -> Result<Value> {
     alt((
         map(take_i32, |n| Value::Immediate(n as u16)),
         map(register, Value::Register),
@@ -244,19 +247,19 @@ fn with_mode(mode: Mode) -> impl Fn(Value) -> SecondOperand {
     move |value| SecondOperand { mode, value, index: None }
 }
 
-fn immediate_operand(input: &str) -> Result<SecondOperand> {
+fn immediate_operand(input: Span) -> Result<SecondOperand> {
     map(preceded(tag("="), operand_value), with_mode(Mode::Immediate))(input)
 }
 
-fn indirect_operand(input: &str) -> Result<SecondOperand> {
+fn indirect_operand(input: Span) -> Result<SecondOperand> {
     map(preceded(tag("@"), operand_value), with_mode(Mode::Indirect))(input)
 }
 
-fn direct_operand(input: &str) -> Result<SecondOperand> {
+fn direct_operand(input: Span) -> Result<SecondOperand> {
     map(operand_value, with_mode(Mode::Direct))(input)
 }
 
-fn operand2(input: &str) -> Result<SecondOperand> {
+fn operand2(input: Span) -> Result<SecondOperand> {
     context("second operand",
         map(
             separated_pair(
@@ -279,7 +282,7 @@ fn operand2(input: &str) -> Result<SecondOperand> {
         ))(input)
 }
 
-fn take_concrete_instruction(input: &str) -> Result<ConcreteInstruction> {
+fn take_concrete_instruction(input: Span) -> Result<ConcreteInstruction> {
     map(
         tuple((
             take_concrete_opcode,
@@ -305,14 +308,14 @@ fn take_concrete_instruction(input: &str) -> Result<ConcreteInstruction> {
     )(input)
 }
 
-fn take_instruction(input: &str) -> Result<SymbolicInstruction> {
+fn take_instruction(input: Span) -> Result<SymbolicInstruction> {
     alt((
         map(take_concrete_instruction, SymbolicInstruction::Concrete),
         map(take_pseudo_instruction, SymbolicInstruction::Pseudo),
     ))(input)
 }
 
-fn take_comment(input: &str) -> Result<&str> {
+fn take_comment(input: Span) -> Result<Span> {
     preceded(
         tag(";"),
         take_till(|c| NEWLINE_CHARACTERS.contains(c)),
@@ -320,17 +323,22 @@ fn take_comment(input: &str) -> Result<&str> {
 }
 
 /// Parse a single line of assembly.
-fn take_line(input: &str) -> Result<Option<(Option<&str>, SymbolicInstruction)>> {
+fn take_line(input: Span) -> Result<(u32, Option<(Option<Span>, SymbolicInstruction)>)> {
     preceded(
         opt(sp),
         terminated(
-            opt(alt((
-                map(
-                    separated_pair(take_label, sp, take_instruction),
-                    |(label, ins)| (Some(label), ins),
+            map(
+                opt(
+                    alt((
+                        map(
+                            separated_pair(take_label, sp, take_instruction),
+                            |(label, ins)| (Some(label), ins),
+                        ),
+                        map(take_instruction, |ins| (None, ins)),
+                    ))
                 ),
-                map(take_instruction, |ins| (None, ins)),
-            ))),
+                |line| (input.line, line)
+            ),
             opt(preceded(opt(sp), take_comment)),
         ),
     )(input)
@@ -338,18 +346,14 @@ fn take_line(input: &str) -> Result<Option<(Option<&str>, SymbolicInstruction)>>
 
 fn fold_program(
     mut program: Program,
-    line: Option<(Option<&str>, SymbolicInstruction)>,
+    line: (u32, Option<(Option<Span>, SymbolicInstruction)>),
 ) -> Program { 
-    match line {
-        Some((label, SymbolicInstruction::Pseudo(ins))) => {
-            let label = label.map(str::to_string);
-            program.init_table.push((label, ins));
-        },
-        Some((label, SymbolicInstruction::Concrete(ins))) => {
-            let label = label.map(str::to_string);
-            program.instructions.push((label, ins));
-        },
-        None => (),
+    if let (line, Some((label, instruction))) = line {
+        program.instructions.push(InstructionEntry {
+            label: label.map(|s| s.fragment.to_string()),
+            instruction,
+            source_line: line as usize,
+        });
     }
 
     program
@@ -367,13 +371,16 @@ fn flatten_error(err: nom::Err<ParseError>) -> ParseError {
 pub fn parse_line(input: &str)
     -> StdResult<Option<(Option<&str>, SymbolicInstruction)>, ParseError>
 {
-    all_consuming(take_line)(input)
-        .map(|(_input, result)| result)
+    all_consuming(take_line)(Span::new(input))
+        .map(|(_, line)| line.1.map(|l| {
+            let label = l.0.map(|s| s.fragment);
+            (label, l.1)
+        }))
         .map_err(flatten_error)
 }
 
 /// Parse an entire assembly program.
-fn take_symbolic_file(input: &str) -> Result<Program> {
+fn take_symbolic_file(input: Span) -> Result<Program> {
     map(
         tuple((
             fold_many0(
@@ -394,7 +401,7 @@ fn take_symbolic_file(input: &str) -> Result<Program> {
 ///
 /// You propably want to use this via [Program::parse](crate::symbolic::Program::parse).
 pub fn parse_symbolic_file(input: &str) -> StdResult<Program, ParseError> {
-    all_consuming(take_symbolic_file)(input)
+    all_consuming(take_symbolic_file)(Span::new(input))
         .map(|(_input, result)| result)
         .map_err(flatten_error)
 }

@@ -12,22 +12,26 @@ use nom::{
 
 use super::program::{Segment, Program};
 
+use nom_locate::LocatedSpan;
+
+type Span<'a> = LocatedSpan<&'a str>;
+
 /// Represents error specific to bytecode file parsing.
 #[derive(Debug, Clone)]
 pub enum ErrorKind {}
 
 /// Represents an error which has prevented the bytecode file from being parsed.
 pub type ParseError = crate::error::ParseError<ErrorKind>;
-type Result<'a,T> = IResult<&'a str, T, ParseError>;
+type Result<'a,T> = IResult<Span<'a>, T, ParseError>;
 
 const SPACE_CHARACTERS: &'static str = " \t";
 const NEWLINE_CHARACTERS: &'static str = "\r\n";
 
-fn sp(input: &str) -> Result<&str> {
+fn sp(input: Span) -> Result<Span> {
     take_while(|c| SPACE_CHARACTERS.contains(c))(input)
 }
 
-fn newline(input: &str) -> Result<&str> {
+fn newline(input: Span) -> Result<Span> {
     take_while(|c| NEWLINE_CHARACTERS.contains(c))(input)
 }
 
@@ -45,7 +49,7 @@ fn is_digit(c: char) -> bool {
 
 //pub type ParseError<'a> = ::nom::Err<::nom::error::VerboseError<&'a str>>;
 
-pub(crate) fn parse_bytecode_file(input: &str) -> StdResult<Program, ParseError> {
+pub(crate) fn parse_bytecode_file(input: Span) -> StdResult<Program, ParseError> {
     match parse_bytecode_file_nom(input) {
         Ok((_, program)) => Ok(program),
         Err(nom::Err::Error(err)) | Err(nom::Err::Failure(err)) => Err(err),
@@ -53,8 +57,8 @@ pub(crate) fn parse_bytecode_file(input: &str) -> StdResult<Program, ParseError>
     }
 }
 
-fn parse_segment(header: &'static str) -> impl for<'a> Fn(&'a str) -> Result<'a, Segment> {
-    fn _parse_segment<'a>(header: &'static str, input: &'a str) -> Result<'a, Segment> {
+fn parse_segment(header: &'static str) -> impl for<'a> Fn(Span<'a>) -> Result<'a, Segment> {
+    fn _parse_segment<'a>(header: &'static str, input: Span<'a>) -> Result<'a, Segment> {
         map(
             preceded(
                 terminated(tag(header), newline),
@@ -76,39 +80,39 @@ fn parse_segment(header: &'static str) -> impl for<'a> Fn(&'a str) -> Result<'a,
     move |input| _parse_segment(header, input)
 }
 
-fn take_symbol_name(input: &str) -> Result<&str> {
+fn take_symbol_name(input: Span) -> Result<Span> {
     take_while(char::is_alphanumeric)(input)
 }
 
-fn take_usize(base: u32) -> impl Fn(&str) -> Result<usize> {
-    move |input: &str| map_res(
+fn take_usize(base: u32) -> impl Fn(Span) -> Result<usize> {
+    move |input: Span| map_res(
         take_while(|c: char| c.is_digit(base)),
-        |s| usize::from_str_radix(s, base),
+        |s: Span| usize::from_str_radix(s.fragment, base),
     )(input)
 }
 
-fn take_u32(base: u32) -> impl Fn(&str) -> Result<u32> {
-    move |input: &str| map_res(
+fn take_u32(base: u32) -> impl Fn(Span) -> Result<u32> {
+    move |input: Span| map_res(
         take_while(|c: char| c.is_digit(base)),
-        |s| u32::from_str_radix(s, base),
+        |s: Span| u32::from_str_radix(s.fragment, base),
     )(input)
 }
 
-fn take_u16(base: u32) -> impl Fn(&str) -> Result<u16> {
-    move |input: &str| map_res(
+fn take_u16(base: u32) -> impl Fn(Span) -> Result<u16> {
+    move |input: Span| map_res(
         take_while(|c: char| c.is_digit(base)),
-        |s| u16::from_str_radix(s, base),
+        |s: Span| u16::from_str_radix(s.fragment, base),
     )(input)
 }
 
-fn take_i32(input: &str) -> Result<u32> {
+fn take_i32(input: Span) -> Result<u32> {
     alt((
         preceded(tag("0x"), take_u32(16)),
         take_u32(10),
     ))(input)
 }
 
-fn parse_symbol_table(input: &str) -> Result<HashMap<String, u16>> {
+fn parse_symbol_table(input: Span) -> Result<HashMap<String, u16>> {
     preceded(
         preceded(tag("___symboltable___"), newline),
         fold_many0(
@@ -122,7 +126,7 @@ fn parse_symbol_table(input: &str) -> Result<HashMap<String, u16>> {
     )(input)
 }
 
-fn parse_bytecode_file_nom(input: &str) -> Result<Program> {
+fn parse_bytecode_file_nom(input: Span) -> Result<Program> {
     map(
         delimited(
             preceded(tag("___b91___"), newline),
