@@ -56,12 +56,25 @@ fn run(file_path: &str) -> Result<(), Error> {
     let file = std::fs::read_to_string(file_path)?;
     let program;
 
-    if file_path.ends_with(".k91") {
-        let sym_prog = symbolic::Program::parse(&*file)?;
+    let mut is_symbolic = file_path.ends_with(".k91");
 
-        program = sym_prog.compile();
+    if is_symbolic {
+        let res = symbolic::Program::parse(&*file);
+
+        if let Ok(prog) = res {
+            program = prog.compile();
+        } else {
+            program = bytecode::Program::parse(&*file)?;
+        }
     } else {
-        program = bytecode::Program::parse(&*file)?;
+        let res = bytecode::Program::parse(&*file);
+
+        if let Ok(prog) = res {
+            program = prog;
+        } else {
+            program = symbolic::Program::parse(&*file)?
+                .compile();
+        }
     }
 
     let mut emulator = Emulator::new(program.to_words(), StdIo)
