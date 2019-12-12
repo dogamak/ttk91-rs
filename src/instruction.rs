@@ -220,6 +220,67 @@ impl OpCode {
     }
 }
 
+impl fmt::Display for OpCode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if let OpCode::Jump { negated, condition } = self {
+            if JumpCondition::Unconditional == *condition {
+                write!(f, "JUMP")
+            } else {
+                let end = match condition {
+                    JumpCondition::Equal => "EQU",
+                    JumpCondition::Less => "LES",
+                    JumpCondition::Greater => "GRE",
+                    JumpCondition::Positive => "POS",
+                    JumpCondition::Negative => "NEG",
+                    JumpCondition::Zero => "ZER",
+                    JumpCondition::Unconditional => unreachable!(),
+                };
+
+                match negated {
+                    true => write!(f, "JN{}", end),
+                    false => write!(f, "J{}", end)
+                }
+            }
+        } else {
+            write!(f, "{}", match self {
+                OpCode::NoOperation => "NOP",
+
+                OpCode::Store => "STORE",
+                OpCode::Load => "LOAD",
+                OpCode::In => "IN",
+                OpCode::Out => "OUT",
+
+                OpCode::Add => "ADD",
+                OpCode::Subtract => "SUB",
+                OpCode::Multiply => "MUL",
+                OpCode::Divide => "DIV",
+                OpCode::Modulo => "MOD",
+
+                OpCode::And => "AND",
+                OpCode::Or => "OR",
+                OpCode::Xor => "XOR",
+                OpCode::ShiftLeft => "SHL",
+                OpCode::ShiftRight => "SHR",
+                OpCode::Not => "NOT",
+                OpCode::ArithmeticShiftRight => "ASHL",
+
+                OpCode::Compare => "COMP",
+
+                OpCode::Call => "CALL",
+                OpCode::Exit => "EXIT",
+                OpCode::Push => "PUSH",
+                OpCode::Pop => "POP",
+                OpCode::PushRegisters => "PUSHR",
+                OpCode::PopRegisters => "POPR",
+
+                OpCode::SupervisorCall => "SVC",
+
+                OpCode::Jump { .. } => unreachable!(),
+            })
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Mode {
     Direct,
@@ -309,6 +370,23 @@ pub struct Instruction {
     pub index_register: Register,
     pub register: Register,
     pub immediate: u16,
+}
+
+impl fmt::Display for Instruction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use Mode::*;
+
+        write!(f, "{} {}, {}",
+            self.opcode,
+            self.register,
+            match (self.mode, self.immediate, self.index_register) {
+                (Immediate, imm, _reg) => format!("=0x{:04x}", imm),
+                (Direct, 0, reg) => reg.to_string(),
+                (Direct, imm, reg) => format!("0x{:04x}({})", imm, reg),
+                (Indirect, 0, reg) => format!("@{}", reg),
+                (Indirect, imm, reg) => format!("@0x{:04x}({})", imm, reg),
+            })
+    }
 }
 
 impl Into<u32> for Instruction {
