@@ -108,12 +108,12 @@ impl CompileTarget for Program {
     ) -> Self::Location {
         let (abs_addr, rel_addr) = match segment {
             SegmentType::Text => {
-                self.code.content.push(word as u32);
+                self.code.content.push(word);
                 self.data.start += 1;
                 (self.code.content.len() - 1, self.code.content.len() - 1)
             },
             SegmentType::Data => {
-                self.data.content.push(word as u32);
+                self.data.content.push(word);
                 (self.code.content.len() + self.data.content.len() - 1, self.data.content.len() - 1)
             },
         };
@@ -125,8 +125,8 @@ impl CompileTarget for Program {
 
     fn set_word(&mut self, (segment, addr): &Self::Location, value: i32) {
         match segment {
-            SegmentType::Text => self.code.content[*addr] = value as u32,
-            SegmentType::Data => self.data.content[*addr] = value as u32,
+            SegmentType::Text => self.code.content[*addr] = value,
+            SegmentType::Data => self.data.content[*addr] = value,
         }
     }
 
@@ -364,7 +364,7 @@ MAIN 	LOAD 	R1, X
     }
 
     let ins = prog.code.content.iter()
-        .map(|word| Instruction::try_from(*word).unwrap())
+        .map(|word| Instruction::try_from(*word as u32).unwrap())
         .collect::<Vec<_>>();
 
     println!("{:?}", ins);

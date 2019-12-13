@@ -155,7 +155,7 @@ impl Memory for SharedMemory {
         }
     }
 
-    fn get_data(&mut self, addr: u16) -> Result<u16, Self::Error> {
+    fn get_data(&mut self, addr: u16) -> Result<i32, Self::Error> {
         if addr & 0x8000 != 0 {
             return Err(MemoryError::OperationNotAllwed {
                 address: addr,
@@ -169,18 +169,18 @@ impl Memory for SharedMemory {
             let address = stack.end() - (addr & 0x7FFF);
             let guard = self.stack.lock()?;
             guard.get(address as usize)
-                .map(|w| *w as u16)
+                .copied()
                 .ok_or(MemoryError::InvalidAddress { address })
         } else {
             let address = addr & 0x7FFF;
             let guard = self.data.lock()?;
             guard.get(address as usize)
-                .map(|w| *w as u16)
+                .copied()
                 .ok_or(MemoryError::InvalidAddress { address })
         }
     }
 
-    fn set_data(&mut self, addr: u16, data: u16) -> Result<(), Self::Error> {
+    fn set_data(&mut self, addr: u16, data: i32) -> Result<(), Self::Error> {
         if addr & 0x8000 != 0 {
             return Err(MemoryError::OperationNotAllwed {
                 address: addr,
@@ -193,12 +193,12 @@ impl Memory for SharedMemory {
         if stack.contains(&addr) {
             let addr = stack.end() - (addr & 0x7FFF);
             let mut guard = self.stack.lock()?;
-            guard[addr as usize] = data as i32;
+            guard[addr as usize] = data;
         } else {
             let addr = addr & 0x7FFF;
             let mut guard = self.data.lock()?;
             println!("Addr: {}", addr);
-            guard[addr as usize] = data as i32;
+            guard[addr as usize] = data;
         }
 
         Ok(())
@@ -368,7 +368,7 @@ impl REPL {
                                 if let Some(addr) = self.symbol_table.get(&entry.symbol) {
                                     let imm = match entry.kind {
                                         RelocationKind::Address => *addr as u16,
-                                        RelocationKind::Value => self.memory.get_data(*addr as u16)?,
+                                        RelocationKind::Value => self.memory.get_data(*addr)? as u16,
                                     };
 
                                     ins.immediate = imm;
@@ -442,7 +442,7 @@ impl REPL {
 
                         let imm = match entry.kind {
                             RelocationKind::Address => *addr as u16,
-                            RelocationKind::Value => self.memory.get_data(*addr as u16)?,
+                            RelocationKind::Value => self.memory.get_data(*addr)? as u16,
                         };
 
                         ins.immediate = imm;
