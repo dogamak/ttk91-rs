@@ -19,7 +19,7 @@ required-features = ["ttk91run"]
 [features]
 tools = ["ttk91repl", "ttk91run"]
 ttk91run = ["clap", "slog-term", "slog-async"]
-ttk91repl = []
+ttk91repl = ["clap", "slog-term", "slog-async"]
 
 [dependencies]
 nom = "5"

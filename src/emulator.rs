@@ -585,6 +585,10 @@ impl<Mem, IO> Emulator<Mem, IO> where Mem: Memory, IO: InputOutput {
         })
     }
 
+    pub fn set_logger(&mut self, logger: Logger) {
+        self.logger = logger.new(o!("stage" => "execution"));
+    }
+
     /// Fetches the instruction from the address pointed by the Program Counter register.
     pub fn get_current_instruction(&mut self) -> Result<Instruction, Mem::Error> {
         self.memory.get_instruction(self.context.pc)

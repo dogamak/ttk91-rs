@@ -6,6 +6,10 @@ use std::io::Write;
 use std::str::FromStr;
 use std::ops::RangeInclusive;
 
+use clap::{App, ArgMatches, Arg};
+use slog::{Drain, Logger, Discard, o};
+use slog_term::{TermDecorator, FullFormat};
+
 use ttk91::{
     emulator::{Memory, InputOutput, Emulator, StdIo},
     instruction::{Instruction, Register},
@@ -258,6 +262,7 @@ struct REPL {
     memory: SharedMemory,
     symbol_table: HashMap<String, u16>,
     emulator: Emulator<SharedMemory, StdIo>,
+    logger: Logger,
 }
 
 impl REPL {
@@ -276,7 +281,13 @@ impl REPL {
             memory,
             symbol_table,
             emulator,
+            logger: Logger::root(Discard, o!()),
         })
+    }
+
+    fn set_logger(&mut self, logger: Logger) {
+        self.logger = logger.clone();
+        self.emulator.set_logger(logger);
     }
 
     fn handle_command(&mut self, command: &str) -> Result<(), Error> {
@@ -453,7 +464,29 @@ impl REPL {
     }
 }
 
+fn parse_args() -> ArgMatches<'static> {
+    App::new("ttk91repl")
+        .version(env!("CARGO_PKG_VERSION"))
+        .author("Mitja Karhusaari <mitja@karhusaari>")
+        .about("Read-Evaluate-Print-Loop utility for TTK91")
+        .arg(Arg::with_name("verbose")
+             .help("Enables verbose logging")
+             .long("verbose")
+             .short("v"))
+        .get_matches()
+}
+
 fn main() {
+    let args = parse_args();
+
     let mut repl = REPL::new().unwrap();
+
+    if args.is_present("verbose") {
+        let decorator = TermDecorator::new().build();
+        let drain = FullFormat::new(decorator).build().fuse();
+        let drain = slog_async::Async::new(drain).build().fuse();
+        repl.set_logger(Logger::root(drain, o!()));
+    }
+
     repl.run();
 }
