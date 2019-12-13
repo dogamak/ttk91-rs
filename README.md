@@ -1,8 +1,8 @@
 # TTK91 Rust Toolkit ![](https://github.com/dogamak/ttk91rs/workflows/Rust/badge.svg) ![](https://docs.rs/ttk91rs/badge.svg)
 
-The `ttk91` crate provides a library for dealing with TTK91 bytecode nad symbolic assembly files
-compiling assembly to bytecode and executing bytecode. The crate also includes command-line tools
-for doing these tasks from the terminal.
+The `ttk91` crate provides a library for dealing with TTK91 bytecode and symbolic assembly files,
+compiling assembly to bytecode and executing bytecode. The crate also includes tools
+for doing these tasks from the command-line.
 
 ## Using the library
 ```rust
