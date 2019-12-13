@@ -67,7 +67,7 @@ fn parse_segment(header: &'static str) -> impl for<'a> Fn(Span<'a>) -> Result<'a
                         separated_pair(take_usize(10), sp, take_usize(10)),
                         newline,
                     ),
-                    many0(terminated(take_u32(10), newline)),
+                    many0(terminated(map(take_u32(10), |i| i as i32), newline)),
                 ))
             ),
             |((start, _end), content)| Segment {

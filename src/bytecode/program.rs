@@ -4,7 +4,7 @@ use super::parser::{parse_bytecode_file, ParseError};
 #[derive(Debug, Clone, Default)]
 pub struct Segment {
     pub start: usize,
-    pub content: Vec<u32>,
+    pub content: Vec<i32>,
 }
 
 #[derive(Debug, Clone)]
@@ -19,7 +19,7 @@ impl Program {
         parse_bytecode_file(nom_locate::LocatedSpan::new(bytecode))
     }
 
-    pub fn to_words(&self) -> Vec<u32> {
+    pub fn to_words(&self) -> Vec<i32> {
         let size = std::cmp::max(
             self.code.start + self.code.content.len(),
             self.data.start + self.data.content.len());

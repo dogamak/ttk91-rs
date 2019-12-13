@@ -15,7 +15,7 @@ pub struct Context {
     pub pc: u16,
 
     /// Array containing values for all the eight work registers.
-    pub r: [u16; 8],
+    pub r: [i32; 8],
 
     /// The comparison result flags stored in the State register.
     pub flags: Flags,
@@ -83,14 +83,14 @@ pub trait InputOutput {
     ///
     /// # Returns
     /// A value received from the peripheral device or the user.
-    fn input(&mut self, device: u16) -> u16;
+    fn input(&mut self, device: u16) -> i32;
 
     /// Called when an OUT instruciton is executed.
     ///
     /// # Parameters
     /// - `device`: The device number specified in the address part of the instruction.
     /// - `data`: The value of the register specified in the instruction.
-    fn output(&mut self, device: u16, data: u16);
+    fn output(&mut self, device: u16, data: i32);
 
     /// Called when an SVC instruction is executed.
     ///
@@ -120,7 +120,7 @@ pub trait Memory {
     ///
     /// # Returns
     /// The data word from address `addr` or a memory error.
-    fn get_data(&mut self, addr: u16) -> Result<u16, Self::Error>;
+    fn get_data(&mut self, addr: u16) -> Result<i32, Self::Error>;
 
     /// Overwrite the data word in the specified address.
     ///
@@ -130,28 +130,28 @@ pub trait Memory {
     ///
     /// # Returns
     /// A memory error if the operation cannot be performed.
-    fn set_data(&mut self, addr: u16, data: u16) -> Result<(), Self::Error>;
+    fn set_data(&mut self, addr: u16, data: i32) -> Result<(), Self::Error>;
 
     fn stack_address_range(&self) -> Result<std::ops::RangeInclusive<u16>, Self::Error>;
 
     fn grow_stack(&mut self, amount: u16) -> Result<(), Self::Error>;
 }
 
-impl Memory for Vec<u32> {
+impl Memory for Vec<i32> {
     type Error = ();
 
     fn get_instruction(&mut self, addr: u16) -> Result<Instruction, ()> {
-        self[addr as usize].try_into()
+        (self[addr as usize] as u32).try_into()
     }
 
-    fn get_data(&mut self, addr: u16) -> Result<u16, Self::Error> {
+    fn get_data(&mut self, addr: u16) -> Result<i32, Self::Error> {
         self.get(addr as usize)
-            .map(|x| *x as u16)
+            .copied()
             .ok_or(())
     }
 
-    fn set_data(&mut self, addr: u16, data: u16) -> Result<(), ()> {
-        self[addr as usize] = data as u32;
+    fn set_data(&mut self, addr: u16, data: i32) -> Result<(), ()> {
+        self[addr as usize] = data;
         Ok(())
     }
 
@@ -184,7 +184,7 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
                "value" => value,
                "address" => address);
 
-        self.emulator.memory.set_data(address, value as u16)
+        self.emulator.memory.set_data(address, value)
     }
 
     fn read_data(&mut self, address: u16) -> Result<i32, M::Error> {
@@ -194,7 +194,7 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
                "address" => address,
                "value" => value);
 
-        Ok(value as i32)
+        Ok(value)
     }
 
     /// Returns value of the first operand.
@@ -204,18 +204,18 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
 
     /// Sets the value of the first operand.
     fn set_first_operand(&mut self, value: i32) {
-        self.set_register_value(self.instruction.register, value as u16);
+        self.set_register_value(self.instruction.register, value);
     }
 
     fn get_register_value(&self, reg: Register) -> i32 {
         if reg == Register::R0 {
             return 0;
         } else {
-            self.emulator.context.r[reg.index() as usize] as i32
+            self.emulator.context.r[reg.index() as usize]
         }
     }
 
-    fn set_register_value(&mut self, reg: Register, value: u16) {
+    fn set_register_value(&mut self, reg: Register, value: i32) {
         if reg == Register::R0 {
             error!(self.logger, "store data into register R0");
         } else {
@@ -302,7 +302,7 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
         match (self.instruction.mode, self.instruction.immediate, self.instruction.index_register) {
             (Immediate, _, _) => panic!("No such thing as a store to an immediate value!"),
             (Direct, 0, reg) => {
-                self.set_register_value(reg, value as u16);
+                self.set_register_value(reg, value);
             },
             (Direct, addr, reg) => {
                 let index = self.get_register_value(reg) as u16;
@@ -310,7 +310,7 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
             },
             (Indirect, 0, reg) => {
                 let addr = self.emulator.context.r[reg.index()];
-                self.write_data(addr, value)?;
+                self.write_data(addr as u16, value)?;
             },
             (Indirect, addr, reg) => {
                 let addr = self.read_data(addr)? as u16;
@@ -332,7 +332,7 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
 
         self.set_first_operand(addr + 1);
 
-        Ok(value as i32)
+        Ok(value)
     }
 
     fn push_stack(&mut self, value: i32) -> Result<(), M::Error> {
@@ -372,7 +372,7 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
             OpCode::Store => {
                 // Ignore addressing modes, STORE is a special case.
                 let op1 = self.first_operand();
-                self.write_data(self.instruction.immediate, op1 as i32)?;
+                self.write_data(self.instruction.immediate, op1)?;
             },
             OpCode::In => {
                 let device = self.second_operand()?;
@@ -382,7 +382,7 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
                 debug!(self.logger, "got input '{}' from device {}", input, device;
                        "device" => device,
                        "input" => input);
-                self.set_first_operand(input as i32);
+                self.set_first_operand(input);
             },
             OpCode::Out => {
                 let output = self.first_operand();
@@ -390,7 +390,7 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
                 debug!(self.logger, "writing '{}' to device {}", output, device;
                        "output" => output,
                        "device" => device);
-                self.emulator.io.output(device as u16, output as u16);
+                self.emulator.io.output(device as u16, output);
             },
 
             OpCode::Compare => {
@@ -463,7 +463,7 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
 
                 for i in (0..8).into_iter().rev() {
                     let value = self.pop_stack()?;
-                    self.emulator.context.r[i] = value as u16;
+                    self.emulator.context.r[i] = value;
                 }
             },
             
@@ -574,7 +574,7 @@ impl<Mem, IO> Emulator<Mem, IO> where Mem: Memory, IO: InputOutput {
 
         Ok(Emulator {
             context: Context {
-                r: [0, 0, 0, 0, 0, 0, 0, stack_base_address],
+                r: [0, 0, 0, 0, 0, 0, 0, stack_base_address as i32],
                 pc: 0,
                 flags: Default::default(),
             },
@@ -647,8 +647,8 @@ impl<Mem, IO> Emulator<Mem, IO> where Mem: Memory, IO: InputOutput {
 /// Reads input values from a pre-determined input buffer and
 /// appends printed values to an output buffer.
 pub struct TestIo {
-    input_buffer: Vec<u16>,
-    output_buffer: Vec<u16>,
+    input_buffer: Vec<i32>,
+    output_buffer: Vec<i32>,
 }
 
 impl TestIo {
@@ -659,32 +659,32 @@ impl TestIo {
         }
     }
 
-    pub fn with_input<I: IntoIterator<Item=u16>>(input: I) -> TestIo {
+    pub fn with_input<I: IntoIterator<Item=i32>>(input: I) -> TestIo {
         TestIo {
             input_buffer: input.into_iter().collect(),
             output_buffer: Vec::new(),
         }
     }
 
-    pub fn input(&mut self, value: u16) {
+    pub fn input(&mut self, value: i32) {
         self.input_buffer.push(value);
     }
 
-    pub fn output(&self) -> &[u16] {
+    pub fn output(&self) -> &[i32] {
         &self.output_buffer[..]
     }
 
-    pub fn into_output(self) -> Vec<u16> {
+    pub fn into_output(self) -> Vec<i32> {
         self.output_buffer
     }
 }
 
 impl InputOutput for TestIo {
-    fn input(&mut self, _device: u16) -> u16 {
+    fn input(&mut self, _device: u16) -> i32 {
         self.input_buffer.remove(0)
     }
 
-    fn output(&mut self, _device: u16, value: u16) {
+    fn output(&mut self, _device: u16, value: i32) {
         self.output_buffer.push(value);
     }
 
@@ -692,11 +692,11 @@ impl InputOutput for TestIo {
 }
 
 impl InputOutput for &mut TestIo {
-    fn input(&mut self, _device: u16) -> u16 {
+    fn input(&mut self, _device: u16) -> i32 {
         self.input_buffer.remove(0)
     }
 
-    fn output(&mut self, _device: u16, value: u16) {
+    fn output(&mut self, _device: u16, value: i32) {
         self.output_buffer.push(value);
     }
 
@@ -718,7 +718,7 @@ impl InputOutput for &mut TestIo {
 pub struct StdIo;
 
 impl InputOutput for StdIo {
-    fn input(&mut self, device: u16) -> u16 {
+    fn input(&mut self, device: u16) -> i32 {
         match device {
             0 => {
                 let mut line = String::new();
@@ -736,14 +736,14 @@ impl InputOutput for StdIo {
                     .next()
                     .transpose()
                     .unwrap_or(None)
-                    .map(|byte| byte as u16)
+                    .map(|byte| byte as i32)
                     .unwrap_or(0xFFFF)
             },
             _ => 0,
         }
     }
 
-    fn output(&mut self, device: u16, data: u16) {
+    fn output(&mut self, device: u16, data: i32) {
         match device {
             0 => println!("{}", data),
             1 => print!("{}", std::char::from_u32(data as u32)
@@ -789,18 +789,18 @@ impl Memory for FixedMemory {
                 .map_err(|_| MemoryError { address, kind: MemoryErrorKind::IllegalAccess }))
     }
 
-    fn get_data(&mut self, address: u16) -> Result<u16, Self::Error> {
+    fn get_data(&mut self, address: u16) -> Result<i32, Self::Error> {
         self.inner.get(address as usize)
-            .map(|w| *w as u16)
+            .copied()
             .ok_or(MemoryError { address, kind: MemoryErrorKind::InvalidAddress })
     }
 
-    fn set_data(&mut self, address: u16, value: u16) -> Result<(), Self::Error> {
+    fn set_data(&mut self, address: u16, value: i32) -> Result<(), Self::Error> {
         if self.inner.len() < address as usize {
             return Err(MemoryError { address, kind: MemoryErrorKind::InvalidAddress });
         }
 
-        self.inner[address as usize] = value as i32;
+        self.inner[address as usize] = value;
 
         Ok(())
     }
@@ -859,13 +859,13 @@ impl Memory for BalloonMemory {
                 .map_err(|_| MemoryError { address, kind: MemoryErrorKind::InvalidAddress }))
     }
 
-    fn get_data(&mut self, address: u16) -> Result<u16, Self::Error> {
+    fn get_data(&mut self, address: u16) -> Result<i32, Self::Error> {
         let stack_range = self.stack_address_range()?;
 
         if address < self.program.len() as u16 {
-            Ok(self.program[address as usize] as u16)
+            Ok(self.program[address as usize])
         } else if stack_range.contains(&address) {
-            Ok(self.stack[address as usize - *stack_range.start() as usize] as u16)
+            Ok(self.stack[address as usize - *stack_range.start() as usize])
         } else {
             Err(MemoryError {
                 address,
@@ -874,7 +874,7 @@ impl Memory for BalloonMemory {
         }
     }
 
-    fn set_data(&mut self, address: u16, value: u16) -> Result<(), Self::Error> {
+    fn set_data(&mut self, address: u16, value: i32) -> Result<(), Self::Error> {
         let stack_range = self.stack_address_range()?;
 
         if address < self.program.len() as u16 {
@@ -1040,7 +1040,7 @@ fn test_stack_push_pop_registers() {
     // Register R7 is the stack pointer and canot be changed if we want to keep the stack
     // functional.
     for i in 0..7 {
-        emulator.context.r[i] = i as u16;
+        emulator.context.r[i] = i as i32;
     }
 
     emulator.context.flags.from_word(0b111);
@@ -1053,7 +1053,7 @@ fn test_stack_push_pop_registers() {
     }
 
     for i in 0..7 {
-        assert_eq!(emulator.context.r[i], i as u16);
+        assert_eq!(emulator.context.r[i], i as i32);
     }
     assert_eq!(emulator.context.flags.as_word(), 0b111);
 }
