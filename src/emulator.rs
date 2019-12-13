@@ -6,6 +6,8 @@ use std::io::Read;
 
 use crate::instruction::{Instruction, OpCode, Mode, JumpCondition, Register};
 
+use slog::{Logger, error, trace, debug, o};
+
 /// Contains the execution environment of the TTK91 processor.
 #[derive(Debug, Clone, Default)]
 pub struct Context {
@@ -169,66 +171,127 @@ struct InstructionEmulationContext<'e, 'i, M, IO> {
 
     /// The instruction that we are currently emulating.
     instruction: &'i Instruction,
+
+    logger: Logger,
 }
 
 impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
     where M: Memory,
           IO: InputOutput,
 {
+    fn write_data(&mut self, address: u16, value: i32) -> Result<(), M::Error> {
+        trace!(self.logger, "writing {} to address {}", value, address;
+               "value" => value,
+               "address" => address);
+
+        self.emulator.memory.set_data(address, value as u16)
+    }
+
+    fn read_data(&mut self, address: u16) -> Result<i32, M::Error> {
+        let value = self.emulator.memory.get_data(address)?;
+
+        trace!(self.logger, "read {} from address {}", value, address;
+               "address" => address,
+               "value" => value);
+
+        Ok(value as i32)
+    }
+
     /// Returns value of the first operand.
-    fn first_operand(&self) -> u16 {
+    fn first_operand(&self) -> i32 {
         self.get_register_value(self.instruction.register)
     }
 
     /// Sets the value of the first operand.
-    fn set_first_operand(&mut self, value: u16) {
-        self.set_register_value(self.instruction.register, value);
+    fn set_first_operand(&mut self, value: i32) {
+        self.set_register_value(self.instruction.register, value as u16);
     }
 
-    fn get_register_value(&self, reg: Register) -> u16 {
+    fn get_register_value(&self, reg: Register) -> i32 {
         if reg == Register::R0 {
             return 0;
         } else {
-            self.emulator.context.r[reg.index() as usize]
+            self.emulator.context.r[reg.index() as usize] as i32
         }
     }
 
     fn set_register_value(&mut self, reg: Register, value: u16) {
         if reg == Register::R0 {
-            panic!("Cannot move data to register R0")
+            error!(self.logger, "store data into register R0");
         } else {
+            trace!(self.logger, "store {} into register {}", value, reg;
+                   "value" => value,
+                   "register" => reg.to_string());
             self.emulator.context.r[reg.index() as usize] = value;
         }
     }
 
     /// Resolves the second operand and returns it's value.
-    fn second_operand(&mut self) -> Result<u16, M::Error> {
+    fn second_operand(&mut self) -> Result<i32, M::Error> {
         use Mode::*;
 
         match (self.instruction.mode, self.instruction.immediate, self.instruction.index_register) {
             // Symbolic: =1234
-            (Immediate, imm, _reg) => Ok(imm),
+            (Immediate, imm, _reg) => {
+                trace!(self.logger, "resolving second operand";
+                       "mode" => "immediate",
+                       "value" => imm);
+                Ok(imm as i32)
+            },
 
             // Symbolic: R2
-            (Direct, 0, reg) => Ok(self.get_register_value(reg)),
+            (Direct, 0, reg) => {
+                let value = self.get_register_value(reg);
+
+                trace!(self.logger, "resolving second operand";
+                       "mode" => "direct",
+                       "register" => reg.to_string(),
+                       "value" => value);
+
+                Ok(value)
+            },
 
             // Symbolic: var(R2)
             (Direct, imm, reg) => {
-                let index = self.get_register_value(reg);
-                self.emulator.memory.get_data(imm + index)
+                let index = self.get_register_value(reg) as u16;
+                let value = self.read_data(imm + index)?;
+
+                trace!(self.logger, "resolving second operand";
+                       "mode" => "direct",
+                       "address" => imm,
+                       "offset" => reg.to_string(),
+                       "value" => value);
+
+                Ok(value)
             },
 
             // Symbolic: @R2
             (Indirect, 0, reg) => {
-                let addr = self.get_register_value(reg);
-                self.emulator.memory.get_data(addr)
+                let addr = self.get_register_value(reg) as u16;
+                let value = self.read_data(addr)?;
+
+                trace!(self.logger, "resolving second operand";
+                       "mode" => "indirect",
+                       "register" => reg.to_string(),
+                       "value" => value);
+
+                Ok(value)
             },
 
             // Symbolic: @var(R2)
             (Indirect, imm, reg) => {
-                let index = self.get_register_value(reg);
-                let addr = self.emulator.memory.get_data(imm)?;
-                self.emulator.memory.get_data(addr + index)
+                let index = self.get_register_value(reg) as u16;
+                let addr = self.read_data(imm)? as u16;
+                let value = self.read_data(addr + index)?;
+
+                trace!(self.logger, "resolving second operand";
+                       "mode" => "indirect",
+                       "address1" => imm,
+                       "address2" => addr,
+                       "offset" => index,
+                       "value" => value);
+
+                Ok(value)
             },
         }
     }
@@ -242,17 +305,17 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
                 self.set_register_value(reg, value as u16);
             },
             (Direct, addr, reg) => {
-                let index = self.get_register_value(reg);
-                self.emulator.memory.set_data(addr + index, value as u16)?;
+                let index = self.get_register_value(reg) as u16;
+                self.write_data(addr + index, value)?;
             },
             (Indirect, 0, reg) => {
                 let addr = self.emulator.context.r[reg.index()];
-                self.emulator.memory.set_data(addr, value as u16)?;
+                self.write_data(addr, value)?;
             },
             (Indirect, addr, reg) => {
-                let addr = self.emulator.memory.get_data(addr)?;
-                let index = self.get_register_value(reg);
-                self.emulator.memory.set_data(addr + index, value as u16)?;
+                let addr = self.read_data(addr)? as u16;
+                let index = self.get_register_value(reg) as u16;
+                self.write_data(addr + index, value)?;
             },
         }
 
@@ -261,24 +324,37 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
 
     fn pop_stack(&mut self) -> Result<i32, M::Error> {
         let addr = self.first_operand();
-        let value = self.emulator.memory.get_data(addr + 1)?;
+        let value = self.read_data(addr as u16 + 1)?;
+
+        debug!(self.logger, "popped {} from stack", value;
+               "value" => value,
+               "address" => addr);
+
         self.set_first_operand(addr + 1);
 
         Ok(value as i32)
     }
 
     fn push_stack(&mut self, value: i32) -> Result<(), M::Error> {
-        let addr = self.first_operand();
+        let addr = self.first_operand() as u16;
 
         if !self.emulator.memory.stack_address_range()?.contains(&addr) {
             let range = self.emulator.memory.stack_address_range()?;
             let stack_head = range.start();
             let amount = std::cmp::max(stack_head - addr, range.len() as u16);
             self.emulator.memory.grow_stack(amount)?;
+
+            debug!(self.logger, "growing stack with {} words", amount;
+                   "amount" => amount,
+                   "address" => addr);
         }
 
-        self.emulator.memory.set_data(addr, value as u16)?;
-        self.set_first_operand(addr - 1);
+        debug!(self.logger, "push {} to stack", value;
+               "value" => value,
+               "address" => addr);
+
+        self.write_data(addr, value)?;
+        self.set_first_operand(addr as i32 - 1);
 
         Ok(())
     }
@@ -296,17 +372,25 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
             OpCode::Store => {
                 // Ignore addressing modes, STORE is a special case.
                 let op1 = self.first_operand();
-                self.emulator.memory.set_data(self.instruction.immediate, op1)?;
+                self.write_data(self.instruction.immediate, op1 as i32)?;
             },
             OpCode::In => {
                 let device = self.second_operand()?;
-                let input = self.emulator.io.input(device);
-                self.set_first_operand(input);
+                debug!(self.logger, "waiting input from device {}", device;
+                       "device" => device);
+                let input = self.emulator.io.input(device as u16);
+                debug!(self.logger, "got input '{}' from device {}", input, device;
+                       "device" => device,
+                       "input" => input);
+                self.set_first_operand(input as i32);
             },
             OpCode::Out => {
                 let output = self.first_operand();
                 let device = self.second_operand()?;
-                self.emulator.io.output(device, output);
+                debug!(self.logger, "writing '{}' to device {}", output, device;
+                       "output" => output,
+                       "device" => device);
+                self.emulator.io.output(device as u16, output as u16);
             },
 
             OpCode::Compare => {
@@ -336,6 +420,9 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
                 };
 
                 if result ^ negated {
+                    debug!(self.logger, "jumping to 0x{:04x}", self.instruction.immediate;
+                           "address" => self.instruction.immediate);
+
                     self.emulator.context.pc = self.instruction.immediate;
                 }
             },
@@ -346,6 +433,9 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
                 if self.instruction.immediate == 11 {
                     self.emulator.halted = true;
                 }
+
+                debug!(self.logger, "making supervisor call no {}", self.instruction.immediate;
+                       "call" => self.instruction.immediate);
 
                 self.emulator.io.supervisor_call(self.instruction.immediate);
             },
@@ -380,7 +470,11 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
             OpCode::Call => {
                 //let addr = self.pop_stack()?;
                 self.push_stack(self.emulator.context.pc as i32)?;
-                self.emulator.context.pc = self.second_operand()?;
+                let addr = self.second_operand()?;
+                self.emulator.context.pc = addr as u16;
+
+                debug!(self.logger, "calling procedure at 0x{:04x}", addr;
+                       "address" => addr);
             },
 
             OpCode::Exit => {
@@ -437,6 +531,8 @@ pub struct Emulator<Mem, IO> {
 
     /// True if the execution has been halted.
     pub halted: bool,
+
+    logger: Logger,
 }
 
 impl<Mem, IO> Emulator<Mem, IO> where Mem: Memory, IO: InputOutput {
@@ -449,7 +545,32 @@ impl<Mem, IO> Emulator<Mem, IO> where Mem: Memory, IO: InputOutput {
     /// # Returns
     /// A new [Emulator] instance.
     pub fn new(memory: Mem, io: IO) -> Result<Emulator<Mem, IO>, Mem::Error> {
+        Emulator::with_logger(memory, io, None)
+    }
+
+    /// Create a new emulator.
+    ///
+    /// # Parameters
+    /// - `memory`: A [Memory](Memory) object which has the program.
+    /// - `io`: An [IO handler](InputOutput).
+    /// - `logger`: A logger for debug information.
+    ///
+    /// # Returns
+    /// A new [Emulator] instance.
+    pub fn with_logger<L>(
+        memory: Mem,
+        io: IO,
+        logger: L,
+    ) -> Result<Emulator<Mem, IO>, Mem::Error>
+    where
+        L: Into<Option<Logger>>,
+    {
         let stack_base_address = *memory.stack_address_range()?.end();
+
+        let logger = logger
+            .into()
+            .unwrap_or(Logger::root(slog::Discard, o!()))
+            .new(o!("stage" => "execution"));
 
         Ok(Emulator {
             context: Context {
@@ -460,7 +581,12 @@ impl<Mem, IO> Emulator<Mem, IO> where Mem: Memory, IO: InputOutput {
             memory,
             io,
             halted: false,
+            logger,
         })
+    }
+
+    pub fn set_logger(&mut self, logger: Logger) {
+        self.logger = logger.new(o!("stage" => "execution"));
     }
 
     /// Fetches the instruction from the address pointed by the Program Counter register.
@@ -477,6 +603,10 @@ impl<Mem, IO> Emulator<Mem, IO> where Mem: Memory, IO: InputOutput {
     /// Returns a memory error if the instruction tries to execute an illegal memory operation.
     pub fn emulate_instruction(&mut self, ins: &Instruction) -> Result<(), Mem::Error> {
         let mut ctx = InstructionEmulationContext {
+            logger: self.logger.new(o!(
+                "instruction" => ins.to_string(),
+                "program_counter" => self.context.pc,
+            )),
             emulator: self,
             instruction: ins,
         };

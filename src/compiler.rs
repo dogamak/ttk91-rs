@@ -13,6 +13,8 @@ use crate::instruction::Instruction;
 use std::collections::HashMap;
 use std::convert::TryInto;
 
+use slog::{o, Logger, Discard, trace, debug};
+
 /// Represents the type of a memory segment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SegmentType {
@@ -133,8 +135,6 @@ impl CompileTarget for Program {
             addr += self.code.content.len();
         }
 
-        println!("Add label '{}': {}", label, addr);
-
         self.symbol_table.insert(label, addr as u16);
     }
 
@@ -213,7 +213,38 @@ impl<T> CompileTarget for SourceMap<T>
 /// Compiles the given assembly program into bytecode.
 /// Supports compilation into multiple data structures, but most often the compilation target is
 /// [crate::bytecode::Program] possibly in combination with [SourceMap].
-pub fn compile<T: CompileTarget>(symprog: symbolic::Program) -> T {
+pub fn compile<T>(symprog: symbolic::Program) -> T
+where
+    T: CompileTarget,
+    T::Location: std::hash::Hash,
+{
+    compile_with_logger(symprog, None)
+}
+
+fn print_hash<T: std::hash::Hash>(t: &T) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::Hasher;
+    let mut hasher = DefaultHasher::default();
+    t.hash(&mut hasher);
+    format!("{:x}", hasher.finish())
+}
+
+pub fn compile_with_logger<T,L>(
+    symprog: symbolic::Program,
+    logger: L,
+) -> T
+where
+    T: CompileTarget,
+    L: Into<Option<Logger>>,
+    T::Location: std::hash::Hash,
+{
+    let logger = logger
+        .into()
+        .unwrap_or(Logger::root(Discard, o!()))
+        .new(o!("stage" => "compilation"));
+
+    slog::warn!(logger, "WARN");
+
     let mut target = T::create();
 
     let mut relocation_table = HashMap::<String, Vec<(T::Location, Instruction)>>::new();
@@ -231,7 +262,12 @@ pub fn compile<T: CompileTarget>(symprog: symbolic::Program) -> T {
                     SegmentType::Text,
                 );
 
+                let loc_log = logger.new(o!("location" => print_hash(&loc)));
+
+                trace!(loc_log, "append instruction");
+
                 if let Some(reloc) = sym_ins.relocation_symbol() {
+                    trace!(loc_log, "add a location to relocation table"; "symbol" => &reloc.symbol);
                     relocation_table
                         .entry(reloc.symbol)
                         .or_default()
@@ -239,6 +275,7 @@ pub fn compile<T: CompileTarget>(symprog: symbolic::Program) -> T {
                 }
 
                 if let Some(label) = entry.label {
+                    trace!(loc_log, "add a label to the symbol table"; "label" => &label);
                     target.new_symbol(label.clone(), &loc);
                     symbol_table.insert(label, loc);
                 }
@@ -250,7 +287,12 @@ pub fn compile<T: CompileTarget>(symprog: symbolic::Program) -> T {
                     SegmentType::Data,
                 );
 
+                let loc_log = logger.new(o!("location" => print_hash(&loc)));
+
+                trace!(loc_log, "append data"; "size" => ins.size, "value" => ins.value);
+
                 if let Some(label) = entry.label {
+                    trace!(loc_log, "add a label to the symbol table"; "label" => &label);
                     target.new_symbol(label.clone(), &loc);
                     symbol_table.insert(label, loc);
                 }
@@ -280,6 +322,8 @@ pub fn compile<T: CompileTarget>(symprog: symbolic::Program) -> T {
         for (ins_loc, mut ins) in locs {
             ins.immediate = addr;
             let word: u32 = ins.into();
+
+            trace!(logger, "replace address part"; "address" => addr, "label" => &label);
 
             target.set_word(
                 &ins_loc,

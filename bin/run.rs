@@ -7,6 +7,8 @@ use ttk91::{
 use std::env::args;
 
 use clap::{App, Arg, ArgMatches};
+use slog::{Logger, Discard, Drain, o};
+use slog_term::{TermDecorator, FullFormat, CompactFormat};
 
 enum Error {
     Parse,
@@ -36,6 +38,10 @@ fn parse_arguments() -> ArgMatches<'static> {
              .value_name("SOURCE")
              .required(true)
              .index(1))
+        .arg(Arg::with_name("verbose")
+             .help("Enables verbose logging")
+             .long("verbose")
+             .short("v"))
         .get_matches()
 }
 
@@ -44,7 +50,16 @@ fn main() {
 
     let file_path = args.value_of("source").unwrap();
 
-    match run(file_path) {
+    let mut logger = None;
+
+    if args.is_present("verbose") {
+        let decorator = TermDecorator::new().build();
+        let drain = FullFormat::new(decorator).build().fuse();
+        let drain = slog_async::Async::new(drain).build().fuse();
+        logger = Some(Logger::root(drain, o!()));
+    }
+
+    match run(file_path, logger) {
         Ok(()) => (),
         Err(Error::IO(io)) => eprintln!("IO error: {}", io),
         Err(Error::Execution) => eprintln!("Execution error"),
@@ -52,7 +67,7 @@ fn main() {
     }
 }
 
-fn run(file_path: &str) -> Result<(), Error> {
+fn run(file_path: &str, logger: Option<Logger>) -> Result<(), Error> {
     let file = std::fs::read_to_string(file_path)?;
     let program;
 
@@ -62,7 +77,7 @@ fn run(file_path: &str) -> Result<(), Error> {
         let res = symbolic::Program::parse(&*file);
 
         if let Ok(prog) = res {
-            program = prog.compile();
+            program = ttk91::compiler::compile_with_logger(prog, logger.clone());
         } else {
             program = bytecode::Program::parse(&*file)?;
         }
@@ -72,12 +87,12 @@ fn run(file_path: &str) -> Result<(), Error> {
         if let Ok(prog) = res {
             program = prog;
         } else {
-            program = symbolic::Program::parse(&*file)?
-                .compile();
+            let parsed = symbolic::Program::parse(&*file)?;
+            program = ttk91::compiler::compile_with_logger(parsed, logger.clone());
         }
     }
 
-    let mut emulator = Emulator::new(program.to_words(), StdIo)
+    let mut emulator = Emulator::with_logger(program.to_words(), StdIo, logger)
         .map_err(|_| Error::Execution)?;
 
     emulator.run()
