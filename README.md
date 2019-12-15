@@ -9,7 +9,7 @@
 
 The `ttk91` crate provides a library for dealing with TTK91 bytecode and symbolic assembly files,
 compiling assembly to bytecode and executing bytecode. The crate also includes tools
-for doing these tasks from the command-line. The [`ttk91-wasm`](https://github.com/dogamak/ttk91-wasm) crate provides a (limited) WebAssembly interface for this crate, which is used by [`ttk91-web`](https://github.com/dogamak/ttk91-web).
+for doing these tasks from the command-line. The [`ttk91-wasm`](https://github.com/dogamak/ttk91-wasm) crate provides a (limited) WebAssembly interface for this crate, via which [`ttk91-web`](https://github.com/dogamak/ttk91-web) uses this crate.
 
 ## Features
 
