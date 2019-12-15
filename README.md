@@ -1,10 +1,26 @@
-# TTK91 Rust Toolkit ![](https://github.com/dogamak/ttk91rs/workflows/Rust/badge.svg) ![](https://docs.rs/ttk91rs/badge.svg)
+<p align="center"><img src="assets/ttk91rs-logo.svg" /></p>
+<p align="center">
+  <img src="https://github.com/dogamak/ttk91-rs/workflows/Rust/badge.svg" />
+  <img src="https://docs.rs/ttk91rs/badge.svg" />
+  <img src="https://img.shields.io/crates/v/ttk91-rs.svg" />
+</p>
+
+## Overview
 
 The `ttk91` crate provides a library for dealing with TTK91 bytecode and symbolic assembly files,
 compiling assembly to bytecode and executing bytecode. The crate also includes tools
-for doing these tasks from the command-line.
+for doing these tasks from the command-line. The [`ttk91-wasm`](https://github.com/dogamak/ttk91-wasm) crate provides a (limited) WebAssembly interface for this crate, which is used by [`ttk91-web`](https://github.com/dogamak/ttk91-web).
 
-## Using the library
+## Features
+
+- Parse files containing TTK91 bytecode and assembly
+- Compile symbolic assembly into bytecode
+- Generate source map for the bytecode
+- Execute bytecode
+- Extensible IO and Memory interfaces
+- [Command-line utilities](#command-line-utilities)
+
+## Example
 ```rust
 use ttk91::{
     symbolic::Program,
@@ -44,12 +60,12 @@ fn main() {
 ```
 
 
-## Executables
+## Command-line utilities
 
 ### `ttk91repl`
 The `ttk91repl` provides a Read-Execute-Print-Loop environment for the TTK91 symbolic assembly
 language. It supports alternating between writing and executing code and provides multiple
-commands suitable for debugging.
+commands suitable for debugging both TTK91 programs and the emulator itself.
 
 ```text
 0x8000> LOAD  R1, =5
