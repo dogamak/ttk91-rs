@@ -5,6 +5,7 @@ use std::cmp::Ordering;
 use std::io::Read;
 
 use crate::instruction::{Instruction, OpCode, Mode, JumpCondition, Register};
+use crate::event::{Event, EventListener, EventDispatcher};
 
 use slog::{Logger, error, trace, debug, o};
 
@@ -71,52 +72,6 @@ impl Flags {
 
         if word & (1 << 2) != 0 {
             self.less = true;
-        }
-    }
-}
-
-pub enum Event {
-    SupervisorCall {
-        code: u16,
-    },
-    MemoryChange {
-        address: u16,
-        data: i32,
-    },
-    RegisterChange {
-        register: Register,
-        data: i32,
-    },
-}
-
-pub trait EventListener {
-    fn event(&mut self, event: &Event);
-}
-
-impl<F> EventListener for F where F: Fn(&Event) {
-    fn event(&mut self, event: &Event) {
-        self(event)
-    }
-}
-
-struct EventDispatcher {
-    listeners: Vec<Box<dyn EventListener>>,
-}
-
-impl EventDispatcher {
-    fn new() -> EventDispatcher {
-        EventDispatcher {
-            listeners: Vec::new(),
-        }
-    }
-
-    fn add_listener<L: EventListener + 'static>(&mut self, listener: L) {
-        self.listeners.push(Box::new(listener) as Box<dyn EventListener>)
-    }
-
-    fn dispatch(&mut self, event: Event) {
-        for listener in &mut self.listeners {
-            listener.event(&event);
         }
     }
 }
@@ -658,6 +613,7 @@ impl<Mem, IO> Emulator<Mem, IO> where Mem: Memory, IO: InputOutput {
         self.logger = logger.new(o!("stage" => "execution"));
     }
 
+    /// Start sending [events](crate::event::Event) to the specified listener.
     pub fn add_listener<L>(&mut self, listener: L)
     where
         L: EventListener + 'static,
