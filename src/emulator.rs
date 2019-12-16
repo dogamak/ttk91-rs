@@ -404,11 +404,18 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
             },
             OpCode::Out => {
                 let output = self.first_operand();
-                let device = self.second_operand()?;
+                let device = self.second_operand()? as u16;
+
                 debug!(self.logger, "writing '{}' to device {}", output, device;
                        "output" => output,
                        "device" => device);
-                self.emulator.io.output(device as u16, output);
+
+                self.emulator.io.output(device, output);
+
+                self.dispatch(Event::Output {
+                    device: device,
+                    data: output,
+                });
             },
 
             OpCode::Compare => {

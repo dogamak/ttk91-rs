@@ -34,6 +34,15 @@ pub enum Event {
         /// The new value of the register.
         data: i32,
     },
+
+    /// The program sent data to an output device.
+    Output {
+        /// Identifier of the target device.
+        device: u16,
+
+        /// The data sent.
+        data: i32,
+    },
 }
 
 /// Trait for consuming events.
