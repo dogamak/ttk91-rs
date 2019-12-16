@@ -94,6 +94,7 @@ pub mod bytecode;
 pub mod symbolic;
 pub mod compiler;
 pub mod error;
+pub mod event;
 
 //pub use emulator::{Memory, Emulator};
 //pub use program::Program;

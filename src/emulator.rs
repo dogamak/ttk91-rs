@@ -5,8 +5,10 @@ use std::cmp::Ordering;
 use std::io::Read;
 
 use crate::instruction::{Instruction, OpCode, Mode, JumpCondition, Register};
+use crate::event::{Event, EventListener, EventDispatcher};
 
 use slog::{Logger, error, trace, debug, o};
+
 
 /// Contains the execution environment of the TTK91 processor.
 #[derive(Debug, Clone, Default)]
@@ -179,12 +181,23 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
     where M: Memory,
           IO: InputOutput,
 {
+    fn dispatch(&mut self, event: Event) {
+        self.emulator.dispatcher.dispatch(event);
+    }
+
     fn write_data(&mut self, address: u16, value: i32) -> Result<(), M::Error> {
         trace!(self.logger, "writing {} to address {}", value, address;
                "value" => value,
                "address" => address);
 
-        self.emulator.memory.set_data(address, value)
+        self.emulator.memory.set_data(address, value)?;
+
+        self.dispatch(Event::MemoryChange {
+            address,
+            data: value,
+        });
+
+        Ok(())
     }
 
     fn read_data(&mut self, address: u16) -> Result<i32, M::Error> {
@@ -224,6 +237,11 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
                    "register" => reg.to_string());
             self.emulator.context.r[reg.index() as usize] = value;
         }
+
+        self.dispatch(Event::RegisterChange {
+            register: reg,
+            data: value,
+        });
     }
 
     /// Resolves the second operand and returns it's value.
@@ -386,11 +404,18 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
             },
             OpCode::Out => {
                 let output = self.first_operand();
-                let device = self.second_operand()?;
+                let device = self.second_operand()? as u16;
+
                 debug!(self.logger, "writing '{}' to device {}", output, device;
                        "output" => output,
                        "device" => device);
-                self.emulator.io.output(device as u16, output);
+
+                self.emulator.io.output(device, output);
+
+                self.dispatch(Event::Output {
+                    device: device,
+                    data: output,
+                });
             },
 
             OpCode::Compare => {
@@ -438,6 +463,10 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
                        "call" => self.instruction.immediate);
 
                 self.emulator.io.supervisor_call(self.instruction.immediate);
+
+                self.dispatch(Event::SupervisorCall {
+                    code: self.instruction.immediate,
+                });
             },
 
             OpCode::Push => {
@@ -516,7 +545,6 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
 
 /// The emulator contains all neccessary context for executing a TTK91 program
 /// and interfaces for doing IO.
-#[derive(Clone, Debug)]
 pub struct Emulator<Mem, IO> {
     /// The memory of the emulated machine.
     /// Contains all the instructions and data required by the program.
@@ -533,6 +561,8 @@ pub struct Emulator<Mem, IO> {
     pub halted: bool,
 
     logger: Logger,
+
+    dispatcher: EventDispatcher,
 }
 
 impl<Mem, IO> Emulator<Mem, IO> where Mem: Memory, IO: InputOutput {
@@ -582,11 +612,20 @@ impl<Mem, IO> Emulator<Mem, IO> where Mem: Memory, IO: InputOutput {
             io,
             halted: false,
             logger,
+            dispatcher: EventDispatcher::new(),
         })
     }
 
     pub fn set_logger(&mut self, logger: Logger) {
         self.logger = logger.new(o!("stage" => "execution"));
+    }
+
+    /// Start sending [events](crate::event::Event) to the specified listener.
+    pub fn add_listener<L>(&mut self, listener: L)
+    where
+        L: EventListener + 'static,
+    {
+        self.dispatcher.add_listener(listener);
     }
 
     /// Fetches the instruction from the address pointed by the Program Counter register.
