@@ -1,0 +1,6 @@
+lang: rust
+
+deploy:
+  provider: script
+  condition: ./deploy.sh check
+  script: ./deploy.sh publish
