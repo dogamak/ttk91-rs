@@ -1,8 +1,10 @@
 <p align="center"><img src="assets/ttk91rs-logo.svg" /></p>
 <p align="center">
-  <img src="https://github.com/dogamak/ttk91-rs/workflows/Rust/badge.svg" />
-  <img src="https://docs.rs/ttk91rs/badge.svg" />
-  <img src="https://img.shields.io/crates/v/ttk91-rs.svg" />
+  <a href="https://travis-ci.com/dogamak/ttk91-rs">
+    <img src="https://travis-ci.com/dogamak/ttk91-rs.svg?branch=master" />
+  </a>
+  <img src="https://docs.rs/ttk91/badge.svg" />
+  <img src="https://img.shields.io/crates/v/ttk91.svg" />
 </p>
 
 ## Overview
