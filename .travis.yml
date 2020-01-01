@@ -7,6 +7,6 @@ script:
 
 deploy:
   provider: script
-  script: ./deploy.sh publish
+  script: ${TRAVIS_BUILD_DIR}/deploy.sh publish
   on:
-    condition: '"$(./deploy.sh check; echo $?)" -ne 0'
+    condition: '"$(${TRAVIS_BUILD_DIR}/deploy.sh check; echo $?)" -ne 0'
