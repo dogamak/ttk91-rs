@@ -1,6 +1,8 @@
-lang: rust
+language: rust
+os: linux
 
 deploy:
   provider: script
-  condition: ./deploy.sh check
   script: ./deploy.sh publish
+  on:
+    condition: ./deploy.sh check
