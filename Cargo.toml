@@ -6,6 +6,9 @@ edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+description = "A parser, compiler and emulator library for the TTK91 instruction architecture."
+license = "MIT"
+
 [[bin]]
 name = "ttk91repl"
 path = "bin/repl.rs"
