@@ -9,4 +9,4 @@ deploy:
   provider: script
   script: ./deploy.sh publish
   on:
-    condition: ./deploy.sh check
+    condition: "$(./deploy.sh check; echo $?)" -ne 0
