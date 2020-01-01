@@ -1,0 +1,12 @@
+language: rust
+os: linux
+
+script:
+  - cargo build --all --features=tools
+  - cargo test --all --features=tools
+
+deploy:
+  provider: script
+  script: ./deploy.sh publish
+  on:
+    condition: ./deploy.sh check
