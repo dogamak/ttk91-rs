@@ -144,7 +144,10 @@ impl CompileTarget for Program {
             addr += self.code.content.len();
         }
 
-        self.symbol_table.get_symbol_mut(id).set::<Address>(Some(addr as u16));
+        let sym = self.symbol_table.get_symbol_mut(id);
+
+        sym.set::<Location<Self>>(Some((*segment, addr)));
+        sym.set::<Address>(Some(addr as u16));
     }
 
     fn get_symbol_mut(&mut self, label: SymbolId) -> &mut SymbolInfo {
@@ -247,7 +250,7 @@ fn print_hash<T: std::hash::Hash>(t: &T) -> String {
 }
 
 pub fn compile_with_logger<T,L>(
-    mut symprog: symbolic::Program,
+    symprog: symbolic::Program,
     logger: L,
 ) -> T
 where
@@ -329,7 +332,7 @@ where
             Some("CRT") => 0,
             Some("KBD") => 0,
             Some("HALT") => 11,
-            _ => {
+            label => {
                 let location = sym.get::<Location<T>>().as_ref().as_ref().unwrap().clone();
                 target.to_address(&location)
             },
