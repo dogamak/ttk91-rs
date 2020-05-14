@@ -88,6 +88,7 @@
 //!
 //! ## `ttk91run`
 //! ## `ttk91compile`
+pub mod symbol_table;
 pub mod emulator;
 pub mod instruction;
 pub mod bytecode;
