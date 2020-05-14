@@ -45,7 +45,7 @@ pub enum ErrorKind<'a> {
     UnexpectedEOF,
 }
 
-type Result<'a,T> = std::result::Result<T, ParseError<'a>>;
+type Result<'a,T,E=ParseError<'a>> = std::result::Result<T,E>;
 
 #[derive(Debug)]
 pub struct ParseError<'a> {
@@ -249,7 +249,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn take_instruction(&mut self, op: OpCode) -> Result<'a, ConcreteInstruction> {
+    fn take_instruction(&mut self, op: OpCode) -> Result<'a, ConcreteInstruction, ErrorKind<'a>> {
         let operand1 = match_token!(self.stream, {
             Token::Register(r) => r,
             other => match op {
@@ -263,18 +263,12 @@ impl<'a> Parser<'a> {
                         index: None,
                     },
                 }),
-                _ => return Err(ParseError {
-                    span: self.stream.span(),
-                    kind: ErrorKind::Expected {
-                        got: other,
-                        expected: "",
-                    },
+                _ => return Err(ErrorKind::Expected {
+                    got: other,
+                    expected: "",
                 }),
             },
-            @eof => return Err(ParseError {
-                span: self.stream.span(),
-                kind: ErrorKind::UnexpectedEOF,
-            }),
+            @eof => return Err(ErrorKind::UnexpectedEOF),
         });
 
         match_token!(self.stream, {
@@ -292,18 +286,12 @@ impl<'a> Parser<'a> {
                         },
                     });
                 },
-                _ => return Err(ParseError {
-                    span: self.stream.span(),
-                    kind: ErrorKind::Expected {
-                        got: other,
-                        expected: "the second operand",
-                    },
+                _ => return Err(ErrorKind::Expected {
+                    got: other,
+                    expected: "the second operand",
                 }),
             },
-            @eof => return Err(ParseError {
-                span: self.stream.span(),
-                kind: ErrorKind::UnexpectedEOF,
-            }),
+            @eof => return Err(ErrorKind::UnexpectedEOF),
         });
 
         let operand2 = self.take_second_operand()?;
@@ -316,15 +304,12 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn take_second_operand(&mut self) -> Result<'a, SecondOperand> {
+    fn take_second_operand(&mut self) -> Result<'a, SecondOperand, ErrorKind<'a>> {
         let mode = match_token!(self.stream, {
             Token::IndirectModifier => Mode::Indirect,
             Token::ImmediateModifier => Mode::Immediate,
             @peek _token => Mode::Direct,
-            @eof => return Err(ParseError {
-                span: self.stream.span(),
-                kind: ErrorKind::UnexpectedEOF,
-            }),
+            @eof => return Err(ErrorKind::UnexpectedEOF),
         });
 
         let value = match_token!(self.stream, {
@@ -334,17 +319,11 @@ impl<'a> Parser<'a> {
                 let id = self.symbol_table.reference_symbol(self.stream.span(), sym.to_string());
                 Value::Symbol(id)
             },
-            other => return Err(ParseError {
-                span: self.stream.span(),
-                kind: ErrorKind::Expected {
-                    got: other,
-                    expected: "a register or a symbol",
-                },
+            other => return Err(ErrorKind::Expected {
+                got: other,
+                expected: "a register or a symbol",
             }), 
-            @eof => return Err(ParseError {
-                span: self.stream.span(),
-                kind: ErrorKind::UnexpectedEOF,
-            }),
+            @eof => return Err(ErrorKind::UnexpectedEOF),
         });
 
 
@@ -354,30 +333,18 @@ impl<'a> Parser<'a> {
                     Some(Token::Register(r)) => {
                         match self.stream.advance() {
                             Some(Token::IndexEnd) => Some(r),
-                            Some(other) => return Err(ParseError {
-                                span: self.stream.span(),
-                                kind: ErrorKind::Expected {
-                                    got: other,
-                                    expected: "a closing parenthesis"
-                                }
+                            Some(other) => return Err(ErrorKind::Expected {
+                                got: other,
+                                expected: "a closing parenthesis"
                             }),
-                            None => return Err(ParseError {
-                                span: self.stream.span(),
-                                kind: ErrorKind::UnexpectedEOF,
-                            }),
+                            None => return Err(ErrorKind::UnexpectedEOF),
                         }
                     },
-                    Some(other) => return Err(ParseError {
-                        span: self.stream.span(),
-                        kind: ErrorKind::Expected {
-                            got: other,
-                            expected: "a register"
-                        }
+                    Some(other) => return Err(ErrorKind::Expected {
+                        got: other,
+                        expected: "a register"
                     }),
-                    None => return Err(ParseError {
-                        span: self.stream.span(),
-                        kind: ErrorKind::UnexpectedEOF,
-                    }),
+                    None => return Err(ErrorKind::UnexpectedEOF),
                 }
             },
             @peek _other => None,
@@ -391,20 +358,14 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn take_pseudo_instruction(&mut self, op: PseudoOpCode) -> Result<'a, PseudoInstruction> {
+    fn take_pseudo_instruction(&mut self, op: PseudoOpCode) -> Result<'a, PseudoInstruction, ErrorKind<'a>> {
         let operand = match_token!(self.stream, {
             Token::Literal(l) => l,
-            other => return Err(ParseError {
-                span: self.stream.span(),
-                kind: ErrorKind::Expected {
-                    got: other,
-                    expected: "",
-                },
+            other => return Err(ErrorKind::Expected {
+                got: other,
+                expected: "",
             }),
-            @eof => return Err(ParseError {
-                span: self.stream.span(),
-                kind: ErrorKind::UnexpectedEOF,
-            }),
+            @eof => return Err(ErrorKind::UnexpectedEOF),
         });
 
         match op {
@@ -423,30 +384,48 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn error(&self, kind: ErrorKind<'a>) -> Result<()> {
+        Err(ParseError {
+            span: self.stream.span(),
+            kind,
+        })
+    }
+
     fn parse(&mut self) -> Result<'a, Vec<InstructionEntry>> {
+        match self._parse() {
+            Ok(ins) => Ok(ins),
+            Err(kind) => {
+                Err(ParseError {
+                    span: self.stream.span(),
+                    kind,
+                })
+            },
+        }
+    }
+
+    fn _parse(&mut self) -> Result<Vec<InstructionEntry>, ErrorKind<'a>> {
         let mut instructions = Vec::new();
         let mut label_acc = Vec::new();
 
         loop {
             let labels = match_token!(self.stream, {
                 Token::Symbol(label) => {
-                    let res = self.symbol_table.define_symbol(self.stream.span(), label.to_string(), instructions.len() as i32);
+                    let res = self.symbol_table.define_symbol(
+                        self.stream.span(),
+                        label.to_string(),
+                        instructions.len() as i32,
+                    );
 
                     match res {
                         Ok(id) => {
                             label_acc.push(id);
                             continue;
                         },
-                        Err(id) => {
-                            return Err(ParseError {
-                                span: self.stream.span(),
-                                kind: ErrorKind::AlreadyDefined {
-                                    symbol: id,
-                                    label,
-                                },
-                            });
-                        }
-                    }
+                        Err(id) => return Err(ErrorKind::AlreadyDefined {
+                            symbol: id,
+                            label,
+                        }),
+                    };
                 },
                 @peek _other => {
                     label_acc.drain(..).collect()
@@ -457,12 +436,9 @@ impl<'a> Parser<'a> {
             let instruction = match_token!(self.stream, {
                 Token::Operator(op) => SymbolicInstruction::Concrete(self.take_instruction(op)?),
                 Token::PseudoOperator(op) => SymbolicInstruction::Pseudo(self.take_pseudo_instruction(op)?),
-                got => return Err(ParseError {
-                    span: self.stream.span(),
-                    kind: ErrorKind::Expected {
-                        got,
-                        expected: "an opcode",
-                    },
+                got => return Err(ErrorKind::Expected {
+                    got,
+                    expected: "an opcode",
                 }),
                 @eof => break,
             });
