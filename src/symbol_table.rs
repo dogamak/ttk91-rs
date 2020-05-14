@@ -150,16 +150,23 @@ use std::borrow::Cow;
 impl SymbolInfo {
     pub fn set<F: SymbolTableField + 'static>(&mut self, value: F::Value) -> Option<F::Value> {
         let id = TypeId::of::<F>();
+        println!("Set ({}) {:?} = {:?}", F::NAME, id, value);
 
         self.map.insert(id, Box::new(SymbolTableEntry::<F> { value }))
             .and_then(|entry| entry.into_value().downcast().ok().map(|b| *b))
     }
 
     pub fn get<F: SymbolTableField + 'static>(&self) -> Cow<F::Value> {
+        let id = TypeId::of::<F>();
+
         if let Some(s) = self.map.get(&TypeId::of::<F>()) {
-            Cow::Borrowed(s.get_value().downcast_ref().unwrap())
+            let r = s.get_value().downcast_ref().unwrap();
+            println!("Get ({}) {:?} = {:?}", F::NAME, id, r);
+            Cow::Borrowed(r)
         } else {
-            Cow::Owned(Default::default())
+            let v = Default::default();
+            println!("Get ({}) {:?} = {:?} (default)", F::NAME, id, v);
+            Cow::Owned(v)
         }
     }
 

@@ -54,6 +54,8 @@ pub trait CompileTarget: Sized {
         self
     }
 
+    fn symbol_table_mut(&mut self) -> &mut SymbolTable;
+
     /// Sets the word in the location `addr` to value `word`.
     fn set_word(&mut self, addr: &Self::Location, word: i32);
 
@@ -132,6 +134,10 @@ impl CompileTarget for Program {
         (segment, rel_addr)
     }
 
+    fn symbol_table_mut(&mut self) -> &mut SymbolTable {
+        &mut self.symbol_table
+    }
+
     fn set_word(&mut self, (segment, addr): &Self::Location, value: i32) {
         match segment {
             SegmentType::Text => self.code.content[*addr] = value,
@@ -146,7 +152,11 @@ impl CompileTarget for Program {
 
         let sym = self.symbol_table.get_symbol_mut(id);
 
-        sym.set::<Location<Self>>(Some((*segment, addr)));
+        println!("Set location: {:?} ({:?}) = {}",
+            sym.get::<Label>().as_ref().as_ref().unwrap_or(&String::new()),
+            sym.get::<SymbolId>(),
+            addr);
+
         sym.set::<Address>(Some(addr as u16));
     }
 
@@ -188,6 +198,10 @@ impl<T> CompileTarget for SourceMap<T>
             tmp: HashMap::new(),
             source_map: HashMap::new(),
         }
+    }
+
+    fn symbol_table_mut(&mut self) -> &mut SymbolTable {
+        self.compiled.symbol_table_mut()
     }
 
     fn set_word(&mut self, loc: &Self::Location, word: i32) {
@@ -267,6 +281,9 @@ where
 
     let mut target = T::create(symprog.symbol_table);
 
+    let _ = target.symbol_table_mut().define_symbol(0..0, "CRT".to_string(), 11);
+    let _ = target.symbol_table_mut().define_symbol(0..0, "HALT".to_string(), 0);
+
     let mut relocation_table = HashMap::<SymbolId, Vec<(T::Location, Instruction)>>::new();
 
     for entry in symprog.instructions {
@@ -295,6 +312,9 @@ where
 
                 for symbol in entry.labels {
                     trace!(loc_log, "add a label to the symbol table"; "symbol" => ?symbol);
+                    target.symbol_table_mut()
+                        .get_symbol_mut(symbol)
+                        .set::<Location<T>>(Some(loc.clone()));
                     target.set_symbol(symbol, &loc);
                 }
             },
@@ -311,6 +331,9 @@ where
 
                 for symbol in entry.labels {
                     trace!(loc_log, "add a label to the symbol table"; "symbol" => ?symbol);
+                    target.symbol_table_mut()
+                        .get_symbol_mut(symbol)
+                        .set::<Location<T>>(Some(loc.clone()));
                     target.set_symbol(symbol, &loc);
                 }
 
@@ -333,7 +356,10 @@ where
             Some("KBD") => 0,
             Some("HALT") => 11,
             label => {
-                let location = sym.get::<Location<T>>().as_ref().as_ref().unwrap().clone();
+                println!("{:?}", sym);
+                let location = sym.get::<Location<T>>().as_ref().as_ref()
+                    .expect(format!("Symbol {:?} ({:?}) has no location", sym.get::<SymbolId>(), label).as_ref())
+                    .clone();
                 target.to_address(&location)
             },
         };
@@ -410,6 +436,8 @@ MAIN 	LOAD 	R1, X
 
     let program = symbolic::Program::parse(source).unwrap();
     let prog: SourceMap<bytecode::Program> = compile(program);
+
+    println!("{:?}", prog.source_map);
 
     assert_eq!(prog.source_map.get(&0), Some(&8));
     assert_eq!(prog.source_map.get(&1), Some(&9));

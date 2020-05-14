@@ -50,6 +50,8 @@ type Result<'a,T,E=ParseError<'a>> = std::result::Result<T,E>;
 #[derive(Debug)]
 pub struct ParseError<'a> {
     span: Span,
+    line: usize,
+    column: usize,
     kind: ErrorKind<'a>,
 }
 
@@ -63,11 +65,34 @@ impl<'a> fmt::Display for ErrorKind<'a> {
     }
 }
 
+fn newline_callback<'a>(lex: &mut Lexer<'a, Token<'a>>) -> logos::Skip {
+    lex.extras.line_number += 1;
+    lex.extras.line_start_offset = lex.span().end;
+    logos::Skip
+}
+
+#[derive(Debug, Clone)]
+pub struct PositionInformation {
+    line_number: usize,
+    line_start_offset: usize,
+}
+
+impl Default for PositionInformation {
+    fn default() -> PositionInformation {
+        PositionInformation {
+            line_number: 1,
+            line_start_offset: 0,
+        }
+    }
+}
+
 #[derive(Logos, Debug, PartialEq, Clone)]
+#[logos(extras = PositionInformation)]
 pub enum Token<'a> {
     #[error]
-    #[regex(r"[ \t\n\f]", logos::skip)]
-    #[regex(r";.*\n", logos::skip)]
+    #[regex(r"[ \t\f]", logos::skip)]
+    #[regex(r";[^\n]*", logos::skip)]
+    #[token("\n", newline_callback)]
     Error,
 
     #[regex("R[1-7]|SP|FP", register_callback)]
@@ -384,19 +409,14 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn error(&self, kind: ErrorKind<'a>) -> Result<()> {
-        Err(ParseError {
-            span: self.stream.span(),
-            kind,
-        })
-    }
-
     fn parse(&mut self) -> Result<'a, Vec<InstructionEntry>> {
         match self._parse() {
             Ok(ins) => Ok(ins),
             Err(kind) => {
                 Err(ParseError {
                     span: self.stream.span(),
+                    line: self.stream.lexer.extras.line_number,
+                    column: self.stream.lexer.span().start - self.stream.lexer.extras.line_start_offset,
                     kind,
                 })
             },
@@ -408,6 +428,8 @@ impl<'a> Parser<'a> {
         let mut label_acc = Vec::new();
 
         loop {
+            let source_line = self.stream.lexer.extras.line_number;
+
             let labels = match_token!(self.stream, {
                 Token::Symbol(label) => {
                     let res = self.symbol_table.define_symbol(
@@ -443,10 +465,11 @@ impl<'a> Parser<'a> {
                 @eof => break,
             });
 
+            println!("Line: {}", self.stream.lexer.extras.line_number);
             instructions.push(InstructionEntry {
                 instruction,
                 labels,
-                source_line: 0,
+                source_line,
             });
         }
 
