@@ -282,7 +282,7 @@ where
     let mut target = T::create(symprog.symbol_table);
 
     let _ = target.symbol_table_mut().define_symbol(0..0, "CRT".to_string(), 11);
-    let _ = target.symbol_table_mut().define_symbol(0..0, "HALT".to_string(), 0);
+    target.symbol_table_mut().define_symbol(0..0, "HALT".to_string(), 0);
 
     let mut relocation_table = HashMap::<SymbolId, Vec<(T::Location, Instruction)>>::new();
 

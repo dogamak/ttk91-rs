@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::result::Result as StdResult;
 
+use crate::symbol_table::{SymbolTable, Address};
+
 use nom::{
     IResult,
     bytes::complete::{tag, take_while},
@@ -112,14 +114,16 @@ fn take_i32(input: Span) -> Result<u32> {
     ))(input)
 }
 
-fn parse_symbol_table(input: Span) -> Result<HashMap<String, u16>> {
+fn parse_symbol_table(input: Span) -> Result<SymbolTable> {
     preceded(
         preceded(tag("___symboltable___"), newline),
         fold_many0(
             terminated(separated_pair(take_symbol_name, sp, take_u16(10)), newline),
-            HashMap::new(),
+            SymbolTable::new(),
             |mut m, (symbol, value)| {
-                m.insert(symbol.to_string(), value);
+                let id = m.define_symbol(0..0, symbol.to_string(), value as i32).unwrap();
+                m.get_symbol_mut(id).set::<Address>(Some(value));
+                // m.insert(symbol.to_string(), value);
                 m
             },
         ),
@@ -140,7 +144,7 @@ fn parse_bytecode_file_nom(input: Span) -> Result<Program> {
         |(code, data, symbol_table)| Program {
             code,
             data,
-            symbol_table: crate::symbol_table::SymbolTable::new(),
+            symbol_table,
         },
     )(input)
 }

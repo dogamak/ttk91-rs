@@ -35,7 +35,7 @@ fn test_sum_read_program() {
 
     assert_eq!(p.symbol_table.get_symbol_by_label("kbd").unwrap().get::<Address>().as_ref(), &Some(1u16));
     assert_eq!(p.symbol_table.get_symbol_by_label("crt").unwrap().get::<Address>().as_ref(), &Some(0u16));
-    assert_eq!(p.symbol_table.get_symbol_by_label("summ").unwrap().get::<Address>().as_ref(), &Some(11u16));
+    assert_eq!(p.symbol_table.get_symbol_by_label("summa").unwrap().get::<Address>().as_ref(), &Some(11u16));
     assert_eq!(p.symbol_table.get_symbol_by_label("done").unwrap().get::<Address>().as_ref(), &Some(7u16));
     assert_eq!(p.symbol_table.get_symbol_by_label("sum").unwrap().get::<Address>().as_ref(), &Some(0u16));
     assert_eq!(p.symbol_table.get_symbol_by_label("luku").unwrap().get::<Address>().as_ref(), &Some(10u16));
