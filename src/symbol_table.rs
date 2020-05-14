@@ -31,7 +31,7 @@ impl std::fmt::Debug for SymbolInfo {
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
 pub struct SymbolId(usize);
 
-const SYMBOL_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
+static SYMBOL_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 impl Default for SymbolId {
     fn default() -> Self {
