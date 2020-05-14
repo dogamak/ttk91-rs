@@ -22,6 +22,13 @@ pub enum SymbolicInstruction {
     Pseudo(PseudoInstruction),
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum PseudoOpCode {
+    DC,
+    DS,
+    EQU,
+}
+
 #[derive(Clone, Debug)]
 pub struct InstructionEntry {
     pub label: Option<String>,
