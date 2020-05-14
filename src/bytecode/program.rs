@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use super::parser::{parse_bytecode_file, ParseError};
+use crate::symbol_table::SymbolTable;
 
 #[derive(Debug, Clone, Default)]
 pub struct Segment {
@@ -11,7 +12,7 @@ pub struct Segment {
 pub struct Program {
     pub code: Segment,
     pub data: Segment,
-    pub symbol_table: HashMap<String, u16>,
+    pub symbol_table: SymbolTable,
 }
 
 impl Program {

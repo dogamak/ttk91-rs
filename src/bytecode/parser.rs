@@ -140,7 +140,7 @@ fn parse_bytecode_file_nom(input: Span) -> Result<Program> {
         |(code, data, symbol_table)| Program {
             code,
             data,
-            symbol_table,
+            symbol_table: crate::symbol_table::SymbolTable::new(),
         },
     )(input)
 }

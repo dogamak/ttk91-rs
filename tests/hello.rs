@@ -26,11 +26,13 @@ fn test_hello_read_program() {
     assert_eq!(p.data.start, 4);
     assert_eq!(p.data.content, vec![ 13, 15 ]);
 
-    assert_eq!(p.symbol_table.get("halt"), Some(&11));
-    assert_eq!(p.symbol_table.get("crt"), Some(&0));
-    assert_eq!(p.symbol_table.get("x"), Some(&4));
-    assert_eq!(p.symbol_table.get("y"), Some(&5));
-    assert_eq!(p.symbol_table.get("main"), Some(&0));
+    use ttk91::symbol_table::Address;
+
+    assert_eq!(p.symbol_table.get_symbol_by_label("halt").unwrap().get::<Address>().as_ref(), &Some(11u16));
+    assert_eq!(p.symbol_table.get_symbol_by_label("crt").unwrap().get::<Address>().as_ref(), &Some(0u16));
+    assert_eq!(p.symbol_table.get_symbol_by_label("x").unwrap().get::<Address>().as_ref(), &Some(4u16));
+    assert_eq!(p.symbol_table.get_symbol_by_label("y").unwrap().get::<Address>().as_ref(), &Some(5u16));
+    assert_eq!(p.symbol_table.get_symbol_by_label("main").unwrap().get::<Address>().as_ref(), &Some(0u16));
 }
 
 fn compile_program() -> Program {
@@ -60,12 +62,13 @@ fn test_hello_emulate_symbolic_program() {
         println!("{:?}", e.get_current_instruction());
         e.step().unwrap();
         println!("{:?}", e.context);
-        for (symbol, addr) in &p.symbol_table {
+        println!("{:?}", p.symbol_table);
+        /*for (symbol, addr) in &p.symbol_table {
             match e.memory.get_data(*addr as u16) {
                 Err(()) => println!("  {} = {}", symbol, addr),
                 Ok(value) => println!("  {}[{}] = {}", symbol, addr, value),
             }
-        }
+        }*/
     }
 
     assert_eq!(io.into_output(), [28]);
@@ -86,12 +89,13 @@ fn test_hello_emulate_program() {
         e.step().unwrap();
         println!("{:?}", e.context);
         println!("{:?}", p.symbol_table);
-        for (symbol, addr) in &p.symbol_table {
+        println!("{:?}", p.symbol_table);
+        /*for (symbol, addr) in &p.symbol_table {
             match e.memory.get_data(*addr as u16) {
                 Err(()) => println!("  {} = {}", symbol, addr),
                 Ok(value) => println!("  {}[{}] = {}", symbol, addr, value),
             }
-        }
+        }*/
     }
 
     assert_eq!(io.into_output(), [28]);

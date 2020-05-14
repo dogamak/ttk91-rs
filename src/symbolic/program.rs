@@ -2,6 +2,7 @@ use crate::instruction::{OpCode, Register, Mode, Instruction};
 use super::parser::ParseError;
 use crate::compiler::SourceMap;
 use std::collections::HashMap;
+use crate::symbol_table::{SymbolId, SymbolTable};
 
 #[derive(Debug, Clone)]
 pub struct InitializationTableEntry {
@@ -31,15 +32,16 @@ pub enum PseudoOpCode {
 
 #[derive(Clone, Debug)]
 pub struct InstructionEntry {
-    pub label: Option<String>,
+    pub labels: Vec<SymbolId>,
     pub instruction: SymbolicInstruction,
     pub source_line: usize,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Program {
     //pub init_table: Vec<(Option<String>, PseudoInstruction)>,
     pub instructions: Vec<InstructionEntry>,
+    pub symbol_table: SymbolTable,
 }
 
 #[derive(Debug, Clone)]
@@ -95,13 +97,13 @@ pub enum RelocationKind {
 
 #[derive(Clone, Debug)]
 pub struct RelocationEntry {
-    pub symbol: String,
+    pub symbol: SymbolId,
     pub kind: RelocationKind,
 }
 
 #[derive(Clone, Debug)]
 pub enum Value {
-    Symbol(String),
+    Symbol(SymbolId),
     Immediate(u16),
     Register(Register),
 }

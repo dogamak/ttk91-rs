@@ -12,7 +12,7 @@ fn read_program() -> Program {
 
 #[test]
 fn test_sum_read_program() {
-    let p = read_program();
+    let mut p = read_program();
 
     assert_eq!(p.code.start, 0);
     assert_eq!(p.code.content, vec![
@@ -31,13 +31,15 @@ fn test_sum_read_program() {
     assert_eq!(p.data.start, 10);
     assert_eq!(p.data.content, vec![ 0, 0 ]);
 
-    assert_eq!(p.symbol_table.get("kbd"), Some(&1));
-    assert_eq!(p.symbol_table.get("crt"), Some(&0));
-    assert_eq!(p.symbol_table.get("summa"), Some(&11));
-    assert_eq!(p.symbol_table.get("done"), Some(&7));
-    assert_eq!(p.symbol_table.get("sum"), Some(&0));
-    assert_eq!(p.symbol_table.get("luku"), Some(&10));
-    assert_eq!(p.symbol_table.get("halt"), Some(&11));
+    use ttk91::symbol_table::Address;
+
+    assert_eq!(p.symbol_table.get_symbol_by_label("kbd").unwrap().get::<Address>().as_ref(), &Some(1u16));
+    assert_eq!(p.symbol_table.get_symbol_by_label("crt").unwrap().get::<Address>().as_ref(), &Some(0u16));
+    assert_eq!(p.symbol_table.get_symbol_by_label("summ").unwrap().get::<Address>().as_ref(), &Some(11u16));
+    assert_eq!(p.symbol_table.get_symbol_by_label("done").unwrap().get::<Address>().as_ref(), &Some(7u16));
+    assert_eq!(p.symbol_table.get_symbol_by_label("sum").unwrap().get::<Address>().as_ref(), &Some(0u16));
+    assert_eq!(p.symbol_table.get_symbol_by_label("luku").unwrap().get::<Address>().as_ref(), &Some(10u16));
+    assert_eq!(p.symbol_table.get_symbol_by_label("halt").unwrap().get::<Address>().as_ref(), &Some(11u16));
 }
 
 #[test]
@@ -60,9 +62,10 @@ fn test_sum_emulate_program() {
             println!("{:?}", e.get_current_instruction());
             e.step().unwrap();
             println!("{:?}", e.context);
-            for (symbol, addr) in &p.symbol_table {
-                println!("  {}[{}] = {}", symbol, addr, e.memory.get_data(*addr as u16).unwrap());
-            }
+            println!("{:?}", p.symbol_table);
+            // for (symbol, addr) in &p.symbol_table {
+            //     println!("  {}[{}] = {}", symbol, addr, e.memory.get_data(*addr as u16).unwrap());
+            // }
         }
 
         assert_eq!(io.into_output(), output);

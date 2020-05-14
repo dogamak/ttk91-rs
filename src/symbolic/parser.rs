@@ -14,7 +14,7 @@ use crate::instruction::{
     Register,
 };
 
-use crate::symbol_table::SymbolTable;
+use crate::symbol_table::{SymbolTable, SymbolId};
 
 use super::program::{
     ConcreteInstruction,
@@ -38,6 +38,10 @@ pub enum ErrorKind<'a> {
         expected: &'static str,
         got: Token<'a>,
     },
+    AlreadyDefined {
+        symbol: SymbolId,
+        label: &'a str,
+    },
     UnexpectedEOF,
 }
 
@@ -53,6 +57,7 @@ impl<'a> fmt::Display for ErrorKind<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             ErrorKind::Expected { expected, got } => write!(f, "expected token {:?} got {:?}", expected, got),
+            ErrorKind::AlreadyDefined { label, .. } => write!(f, "symbol {} is already defined", label),
             ErrorKind::UnexpectedEOF => write!(f, "unexpected EOF"),
         }
     }
@@ -196,7 +201,6 @@ impl<'a> TokenStream<'a> {
         }
 
         if let Some(t) = self.lexer.next() {
-            println!("Peek Advance: {:?}", t);
             self.peek_buffer = Some(t);
             return self.peek_buffer.as_ref();
         }
@@ -208,12 +212,10 @@ impl<'a> TokenStream<'a> {
         self.prev_span = Some(self.lexer.span());
 
         if let Some(t) = std::mem::take(&mut self.peek_buffer) {
-            println!("Advance: {:?} (from peek buffer)", t);
             return Some(t);
         }
 
         let res = self.lexer.next();
-        println!("Advance: {:?} (from lexer)", res);
         res
     }
 }
@@ -236,7 +238,7 @@ macro_rules! match_token {
 
 struct Parser<'a> {
     stream: TokenStream<'a>,
-    symbol_table: SymbolTable<'a>,
+    symbol_table: SymbolTable,
 }
 
 impl<'a> Parser<'a> {
@@ -327,9 +329,10 @@ impl<'a> Parser<'a> {
 
         let value = match_token!(self.stream, {
             Token::Register(r) => Value::Register(r),
+            Token::Literal(l) => Value::Immediate(l as u16),
             Token::Symbol(sym) => {
-                self.symbol_table.reference_symbol(self.stream.span(), sym);
-                Value::Symbol(sym.to_string()) // TODO: Change to SymbolId
+                let id = self.symbol_table.reference_symbol(self.stream.span(), sym.to_string());
+                Value::Symbol(id)
             },
             other => return Err(ParseError {
                 span: self.stream.span(),
@@ -344,7 +347,6 @@ impl<'a> Parser<'a> {
             }),
         });
 
-        println!("Before Index: {:?}", self.stream.lexer.remainder());
 
         let index = match_token!(self.stream, {
             Token::IndexBegin => {
@@ -381,8 +383,6 @@ impl<'a> Parser<'a> {
             @peek _other => None,
             @eof => None,
         });
-
-        println!("After Index: {:?}", self.stream.lexer.remainder());
 
         Ok(SecondOperand {
             mode,
@@ -423,16 +423,34 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse(&mut self) -> Result<'a, Vec<SymbolicInstruction>> {
+    fn parse(&mut self) -> Result<'a, Vec<InstructionEntry>> {
         let mut instructions = Vec::new();
+        let mut label_acc = Vec::new();
 
         loop {
-            println!("Start: {}", self.stream.lexer.remainder());
-            match_token!(self.stream, {
+            let labels = match_token!(self.stream, {
                 Token::Symbol(label) => {
-                    self.symbol_table.define_symbol(self.stream.span(), label, instructions.len() as i32);
+                    let res = self.symbol_table.define_symbol(self.stream.span(), label.to_string(), instructions.len() as i32);
+
+                    match res {
+                        Ok(id) => {
+                            label_acc.push(id);
+                            continue;
+                        },
+                        Err(id) => {
+                            return Err(ParseError {
+                                span: self.stream.span(),
+                                kind: ErrorKind::AlreadyDefined {
+                                    symbol: id,
+                                    label,
+                                },
+                            });
+                        }
+                    }
                 },
-                @peek _other => (),
+                @peek _other => {
+                    label_acc.drain(..).collect()
+                },
                 @eof => break,
             });
 
@@ -449,8 +467,11 @@ impl<'a> Parser<'a> {
                 @eof => break,
             });
 
-            println!("Instuction: {:?}", instruction);
-            instructions.push(instruction);
+            instructions.push(InstructionEntry {
+                instruction,
+                labels,
+                source_line: 0,
+            });
         }
 
         Ok(instructions)
@@ -472,12 +493,7 @@ pub fn parse_symbolic_file(input: &str) -> Result<Program> {
     let instructions = parser.parse()?;
 
     Ok(Program {
-        instructions: instructions.into_iter()
-            .map(|instruction| InstructionEntry {
-                instruction,
-                label: None,
-                source_line: 0,
-            })
-            .collect()
+        symbol_table: parser.symbol_table,
+        instructions,
     })
 }

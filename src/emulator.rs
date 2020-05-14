@@ -7,6 +7,8 @@ use std::io::Read;
 use crate::instruction::{Instruction, OpCode, Mode, JumpCondition, Register};
 use crate::event::{Event, EventListener, EventDispatcher};
 
+use crate::symbol_table::{Address};
+
 use slog::{Logger, error, trace, debug, o};
 
 
@@ -413,7 +415,7 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
                 self.emulator.io.output(device, output);
 
                 self.dispatch(Event::Output {
-                    device: device,
+                    device,
                     data: output,
                 });
             },
@@ -948,9 +950,11 @@ macro_rules! assert_register {
 
 macro_rules! assert_symbol {
     ($emulator:expr, $program:expr, $symbol:expr, $value:expr) => {
-        let addr = $program.symbol_table.get($symbol)
-            .expect("no such symbol");
-        let value = $emulator.memory.get_data(*addr)
+        let addr = $program.symbol_table.get_symbol_by_label_mut($symbol)
+            .expect("no such symbol")
+            .get::<Address>()
+            .expect("symbol to have an address");
+        let value = $emulator.memory.get_data(addr)
             .expect("symbol points to invalid memory");
         assert_eq!(value, $value, "Symbol '{}' at {} != {}", $symbol, addr, $value);
     };
@@ -978,7 +982,7 @@ fn test_stack_basic() {
     "#).unwrap();
     println!("{:?}", program);
 
-    let program = program.compile();
+    let mut program = program.compile();
 
     let mut memory = FixedMemory::new(1024, 128);
     memory.load(program.clone());
@@ -1011,7 +1015,7 @@ fn test_stack_procedures() {
     "#).unwrap();
     println!("{:?}", program);
 
-    let program = program.compile();
+    let mut program = program.compile();
 
     let mut memory = FixedMemory::new(1024, 128);
     memory.load(program.clone());

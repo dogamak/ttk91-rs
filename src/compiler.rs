@@ -7,6 +7,8 @@ use crate::symbolic::{
         SymbolicInstruction,
     },
 };
+use crate::symbol_table::{SymbolId, SymbolInfo, SymbolTable, Label, Location, Address};
+
 use crate::bytecode::{Segment, Program};
 use crate::instruction::Instruction;
 
@@ -32,18 +34,18 @@ pub trait CompileTarget: Sized {
     /// Represents a position in the data structure.
     /// This should not change even if new instructions or data is pushed to the data structure.
     /// The actual address of this location in the produced memory dump can change.
-    type Location: Clone;
+    type Location: Clone + std::fmt::Debug;
 
     /// Create an empty instance of itself.
-    fn create() -> Self;
+    fn create(st: SymbolTable) -> Self;
 
     /// Create an empty instance of itself with reserved capacity for `size` words of data.
     /// This is just a request or a hint, so this doesn't need to be actually implemented if
     /// the data structure doesn't support this.
     ///
     /// The provided default implementation is a call to [CompileTarget::create].
-    fn with_capacity(_size: u16) -> Self {
-        Self::create()
+    fn with_capacity(symbol_table: SymbolTable, _size: u16) -> Self {
+        Self::create(symbol_table)
     }
 
     /// Finalize the compilation.
@@ -66,7 +68,9 @@ pub trait CompileTarget: Sized {
     fn push_word(&mut self, source_line: Option<usize>, word: i32, segment: SegmentType) -> Self::Location;
 
     /// Declares a new symbol with label `label` in location `address`.
-    fn new_symbol(&mut self, label: String, address: &Self::Location);
+    fn set_symbol(&mut self, label: SymbolId, address: &Self::Location);
+
+    fn get_symbol_mut(&mut self, label: SymbolId) -> &mut SymbolInfo;
 
     /// Translates the location `loc` into a word offset in the memory dump.
     /// The location can change after calls to [push_word](CompileTarget::push_word).
@@ -75,7 +79,12 @@ pub trait CompileTarget: Sized {
 
 impl Program {
     fn move_symbols_after(&mut self, addr: u16) {
-        for (_key, value) in self.symbol_table.iter_mut() {
+        for symbol in self.symbol_table.iter_mut() {
+            let value = match symbol.get_mut::<Address>() {
+                Some(v) => v,
+                None => continue,
+            };
+
             if *value >= addr {
                 *value += 1;
             }
@@ -86,7 +95,7 @@ impl Program {
 impl CompileTarget for Program {
     type Location = (SegmentType, usize);
 
-    fn create() -> Program {
+    fn create(symbol_table: SymbolTable) -> Program {
         Program {
             code: Segment {
                 content: Vec::new(),
@@ -96,7 +105,7 @@ impl CompileTarget for Program {
                 content: Vec::new(),
                 start: 0,
             },
-            symbol_table: HashMap::new(),
+            symbol_table,
         }
     }
 
@@ -130,12 +139,16 @@ impl CompileTarget for Program {
         }
     }
 
-    fn new_symbol(&mut self, label: String, (segment, mut addr): &Self::Location) {
+    fn set_symbol(&mut self, id: SymbolId, (segment, mut addr): &Self::Location) {
         if *segment == SegmentType::Data {
             addr += self.code.content.len();
         }
 
-        self.symbol_table.insert(label, addr as u16);
+        self.symbol_table.get_symbol_mut(id).set::<Address>(Some(addr as u16));
+    }
+
+    fn get_symbol_mut(&mut self, label: SymbolId) -> &mut SymbolInfo {
+        self.symbol_table.get_symbol_mut(label)
     }
 
     fn to_address(&self, loc: &Self::Location) -> u16 {
@@ -166,9 +179,9 @@ impl<T> CompileTarget for SourceMap<T>
 {
     type Location = T::Location;
 
-    fn create() -> Self {
+    fn create(symbol_table: SymbolTable) -> Self {
         SourceMap {
-            compiled: T::create(),
+            compiled: T::create(symbol_table),
             tmp: HashMap::new(),
             source_map: HashMap::new(),
         }
@@ -188,8 +201,12 @@ impl<T> CompileTarget for SourceMap<T>
         loc
     }
 
-    fn new_symbol(&mut self, label: String, loc: &Self::Location) {
-        self.compiled.new_symbol(label, loc);
+    fn set_symbol(&mut self, id: SymbolId, loc: &Self::Location) {
+        self.compiled.set_symbol(id, loc);
+    }
+
+    fn get_symbol_mut(&mut self, label: SymbolId) -> &mut SymbolInfo {
+        self.compiled.get_symbol_mut(label)
     }
 
     fn to_address(&self, loc: &Self::Location) -> u16 {
@@ -215,7 +232,7 @@ impl<T> CompileTarget for SourceMap<T>
 /// [crate::bytecode::Program] possibly in combination with [SourceMap].
 pub fn compile<T>(symprog: symbolic::Program) -> T
 where
-    T: CompileTarget,
+    T: CompileTarget + 'static,
     T::Location: std::hash::Hash,
 {
     compile_with_logger(symprog, None)
@@ -230,11 +247,11 @@ fn print_hash<T: std::hash::Hash>(t: &T) -> String {
 }
 
 pub fn compile_with_logger<T,L>(
-    symprog: symbolic::Program,
+    mut symprog: symbolic::Program,
     logger: L,
 ) -> T
 where
-    T: CompileTarget,
+    T: CompileTarget + 'static,
     L: Into<Option<Logger>>,
     T::Location: std::hash::Hash,
 {
@@ -245,10 +262,9 @@ where
 
     slog::warn!(logger, "WARN");
 
-    let mut target = T::create();
+    let mut target = T::create(symprog.symbol_table);
 
-    let mut relocation_table = HashMap::<String, Vec<(T::Location, Instruction)>>::new();
-    let mut symbol_table = HashMap::new();
+    let mut relocation_table = HashMap::<SymbolId, Vec<(T::Location, Instruction)>>::new();
 
     for entry in symprog.instructions {
         match entry.instruction {
@@ -267,17 +283,16 @@ where
                 trace!(loc_log, "append instruction");
 
                 if let Some(reloc) = sym_ins.relocation_symbol() {
-                    trace!(loc_log, "add a location to relocation table"; "symbol" => &reloc.symbol);
+                    trace!(loc_log, "add a location to relocation table"; "symbol" => ?reloc.symbol);
                     relocation_table
                         .entry(reloc.symbol)
                         .or_default()
                         .push((loc.clone(), ins));
                 }
 
-                if let Some(label) = entry.label {
-                    trace!(loc_log, "add a label to the symbol table"; "label" => &label);
-                    target.new_symbol(label.clone(), &loc);
-                    symbol_table.insert(label, loc);
+                for symbol in entry.labels {
+                    trace!(loc_log, "add a label to the symbol table"; "symbol" => ?symbol);
+                    target.set_symbol(symbol, &loc);
                 }
             },
             SymbolicInstruction::Pseudo(ins) => {
@@ -291,10 +306,9 @@ where
 
                 trace!(loc_log, "append data"; "size" => ins.size, "value" => ins.value);
 
-                if let Some(label) = entry.label {
-                    trace!(loc_log, "add a label to the symbol table"; "label" => &label);
-                    target.new_symbol(label.clone(), &loc);
-                    symbol_table.insert(label, loc);
+                for symbol in entry.labels {
+                    trace!(loc_log, "add a label to the symbol table"; "symbol" => ?symbol);
+                    target.set_symbol(symbol, &loc);
                 }
 
                 for _ in 0..ins.size-1 {
@@ -308,14 +322,16 @@ where
         }
     }
 
-    for (label, locs) in relocation_table {
-        let addr = match label.as_str() {
-            "CRT" => 0,
-            "KBD" => 0,
-            "HALT" => 11,
+    for (sym, locs) in relocation_table {
+        let sym = target.get_symbol_mut(sym);
+
+        let addr = match sym.get::<Label>().as_ref().as_ref().map(|s| s.as_str()) {
+            Some("CRT") => 0,
+            Some("KBD") => 0,
+            Some("HALT") => 11,
             _ => {
-                let sym_loc = symbol_table.get(&label).unwrap();
-                target.to_address(sym_loc)
+                let location = sym.get::<Location<T>>().as_ref().as_ref().unwrap().clone();
+                target.to_address(&location)
             },
         };
 
@@ -323,7 +339,7 @@ where
             ins.immediate = addr;
             let word: u32 = ins.into();
 
-            trace!(logger, "replace address part"; "address" => addr, "label" => &label);
+            trace!(logger, "replace address part"; "address" => addr);
 
             target.set_word(
                 &ins_loc,
