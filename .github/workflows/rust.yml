@@ -8,12 +8,25 @@ on:
 
 jobs:
   build:
+    strategy:
+      matrix:
+        channel: ["stable", "beta", "nightly"]
 
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v2
+    - name: Setup Rust Toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: ${{ matrix.channel }}
     - name: Build
-      run: cargo build --verbose
+      uses: actions-rs/cargo@v1
+      with:
+        command: build
+        args: --verbose
     - name: Run tests
-      run: cargo test --verbose
+      uses: actions-rs/cargo@v1
+      with:
+        command: test
+        args: --verbose
