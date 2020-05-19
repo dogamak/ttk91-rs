@@ -5,7 +5,7 @@
 
 use logos::{Logos, Lexer, Span};
 
-use nom::IResult;
+// use nom::IResult;
 
 use crate::instruction::{
     JumpCondition,
@@ -14,7 +14,18 @@ use crate::instruction::{
     Register,
 };
 
-use crate::symbol_table::{SymbolTable, SymbolId};
+use crate::parsing::{
+    Error as ParseError,
+    ErrorExt,
+    ErrorKind,
+    SeekStream,
+    ParseExt,
+    BufferedStream,
+    Either,
+    either,
+};
+
+use crate::symbol_table::{SymbolTable, SymbolId, SymbolInfo, References, Label};
 
 use super::program::{
     ConcreteInstruction,
@@ -27,48 +38,15 @@ use super::program::{
     Value,
 };
 
-use std::collections::HashMap;
 use std::fmt;
 use std::result::Result as StdResult;
 
-/// Represents error conditions specific to symbolic assembly parsing.
-#[derive(Debug, Clone)]
-pub enum ErrorKind<'a> {
-    Expected {
-        expected: &'static str,
-        got: Token<'a>,
-    },
-    AlreadyDefined {
-        symbol: SymbolId,
-        label: &'a str,
-    },
-    UnexpectedEOF,
-}
-
-type Result<'a,T,E=ParseError<'a>> = std::result::Result<T,E>;
-
-#[derive(Debug)]
-pub struct ParseError<'a> {
-    span: Span,
-    line: usize,
-    column: usize,
-    kind: ErrorKind<'a>,
-}
-
-impl<'a> fmt::Display for ErrorKind<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            ErrorKind::Expected { expected, got } => write!(f, "expected token {:?} got {:?}", expected, got),
-            ErrorKind::AlreadyDefined { label, .. } => write!(f, "symbol {} is already defined", label),
-            ErrorKind::UnexpectedEOF => write!(f, "unexpected EOF"),
-        }
-    }
-}
+type Result<T> = std::result::Result<T, ParseError<String>>;
+type TokenStream<'a, 'b> = &'a mut dyn SeekStream<Item=(Token<'b>, Span)>;
 
 fn newline_callback<'a>(lex: &mut Lexer<'a, Token<'a>>) -> logos::Skip {
     lex.extras.line_number += 1;
-    lex.extras.line_start_offset = lex.span().end;
-    logos::Skip
+    lex.extras.line_start_offset = lex.span().end; logos::Skip
 }
 
 #[derive(Debug, Clone)]
@@ -90,7 +68,7 @@ impl Default for PositionInformation {
 #[logos(extras = PositionInformation)]
 pub enum Token<'a> {
     #[error]
-    #[regex(r"[ \t\f]", logos::skip)]
+    #[regex(r"[ \t\r\f]", logos::skip)]
     #[regex(r";[^\n]*", logos::skip)]
     #[token("\n", newline_callback)]
     Error,
@@ -187,8 +165,8 @@ fn register_callback<'a>(lex: &mut Lexer<'a, Token<'a>>) -> std::result::Result<
         "R3" => Ok(Register::R3),
         "R4" => Ok(Register::R4),
         "R5" => Ok(Register::R5),
-        "R6" => Ok(Register::R6),
-        "R7" | "SP" => Ok(Register::R7),
+        "R6" | "SP" => Ok(Register::R6),
+        "R7" | "FP" => Ok(Register::R7),
         _ => Err(()),
     } 
 }
@@ -197,51 +175,45 @@ fn literal_callback<'a>(lex: &mut Lexer<'a, Token<'a>>) -> std::result::Result<i
     lex.slice().parse()
 }
 
-struct TokenStream<'a> {
-    lexer: Lexer<'a, Token<'a>>,
-    prev_span: Option<logos::Span>,
-    peek_buffer: Option<Token<'a>>,
+enum SymbolicOpCode {
+    Concrete(OpCode),
+    Pseudo(PseudoOpCode),
 }
 
-impl<'a> TokenStream<'a> {
-    fn new(lexer: Lexer<'a, Token<'a>>) -> TokenStream<'a> {
-        TokenStream {
-            lexer,
-            prev_span: None,
-            peek_buffer: None,
+#[test]
+fn parse_instructions() {
+    let input = r#"
+; sum - laske annettuja lukuja yhteen kunnes nolla annettu
+
+Luku  DC    0           ; nykyinen luku
+Summa DC    0           ; nykyinen summa
+
+Sum   IN    R1, =KBD	; ohjelma alkaa käskystä 0
+      STORE R1, Luku
+      JZER  R1, Done    ; luvut loppu?
+	
+      LOAD  R1, Summa   ; Summa <- Summa+Luku
+      ADD   R1, Luku	
+      STORE R1, Summa   ; summa muuttujassa, ei rekisterissa?
+
+      JUMP  Sum
+
+Done  LOAD  R1, Summa   ; tulosta summa ja lopeta
+      OUT   R1, =CRT
+
+      SVC   SP, =HALT
+    "#;
+
+    let mut parser = Parser::from_str(input);
+
+    let result = parser.apply(Parser::take_program);
+
+    println!("{:?}", result);
+
+    if let Err(err) = result {
+        if let ErrorKind::UnexpectedToken { span } = err.kind {
+            println!("{:?}", &input[span]);
         }
-    }
-
-    fn from_str(input: &'a str) -> TokenStream<'a> {
-        TokenStream::new(Token::lexer(input))
-    }
-
-    fn span(&self) -> Span {
-        self.lexer.span()
-    }
-
-    fn peek(&mut self) -> Option<&Token<'a>> {
-        if let Some(ref t) = self.peek_buffer {
-            return Some(t);
-        }
-
-        if let Some(t) = self.lexer.next() {
-            self.peek_buffer = Some(t);
-            return self.peek_buffer.as_ref();
-        }
-
-        None
-    }
-
-    fn advance(&mut self) -> Option<Token<'a>> {
-        self.prev_span = Some(self.lexer.span());
-
-        if let Some(t) = std::mem::take(&mut self.peek_buffer) {
-            return Some(t);
-        }
-
-        let res = self.lexer.next();
-        res
     }
 }
 
@@ -261,12 +233,356 @@ macro_rules! match_token {
     };
 }
 
-struct Parser<'a> {
-    stream: TokenStream<'a>,
+#[derive(Default)]
+struct State {
     symbol_table: SymbolTable,
 }
 
+impl<'a> ParserTrait<(Token<'a>, Span)> for Parser<'a> {
+    type Context = State;
+
+    fn span(&self) -> Option<&Span> {
+        self.stream.at_offset(-1).map(|t| &t.1)
+    }
+
+    fn span_next(&mut self) -> Option<&Span> {
+        match self.stream.next() {
+            Some((_, span)) => {
+                self.stream.seek(-1);
+                self.stream.at_offset(0).map(|t| &t.1)
+            },
+            None => None,
+        }
+    }
+
+    fn parts(&mut self) -> (&mut dyn SeekStream<Item=(Token<'a>, Span)>, &mut Self::Context) {
+        (&mut self.stream, &mut self.state)
+    }
+}
+
+struct Parser<'a> {
+    stream: BufferedStream<logos::SpannedIter<'a, Token<'a>>>,
+    state: State,
+}
+
 impl<'a> Parser<'a> {
+    fn from_str(input: &'a str) -> Self {
+        let lex = Token::lexer(input);
+        let stream = BufferedStream::from(lex.spanned());
+
+        Parser {
+            stream,
+            state: Default::default(),
+        }
+    }
+}
+
+use crate::parsing::Parser as ParserTrait;
+
+impl<'t> Parser<'t> {
+    fn parse(&mut self) -> Result<Vec<InstructionEntry>> {
+        Ok(Vec::new())
+    }
+
+    fn parse_second_operand(&mut self) -> Result<SecondOperand> {
+        self.apply(Self::take_second_operand)
+    }
+
+    fn take_opcode(&mut self) -> Result<SymbolicOpCode> {
+        let p = either(Self::take_concrete_opcode, Self::take_pseudo_opcode);
+
+        match self.apply(p)? {
+            Either::Left(op) => Ok(SymbolicOpCode::Concrete(op)),
+            Either::Right(op) => Ok(SymbolicOpCode::Pseudo(op)),
+        }
+    }
+
+    fn take_pseudo_opcode(&mut self) -> Result<PseudoOpCode> {
+        match self.stream().next() {
+            Some((Token::PseudoOperator(op), _)) => Ok(op),
+            Some((_, span)) => Err(ParseError::new(span, "expected a pseudo opcode")),
+            None => Err(ParseError::eos("expected a pseudo opcode")),
+        }
+    }
+
+    fn take_concrete_opcode(&mut self) -> Result<OpCode> {
+        match self.stream().next() {
+            Some((Token::Operator(op), _)) => Ok(op),
+            Some((_, span)) => Err(ParseError::new(span, "expected a concrete opcode")),
+            None => Err(ParseError::eos("expected a concrete opcode")),
+        }
+    }
+
+    fn take_register(&mut self) -> Result<Register> {
+        match self.stream().next() {
+            Some((Token::Register(reg), _)) => Ok(reg),
+            Some((_, span)) => Err(ParseError::new(span, "expected a register")),
+            None => Err(ParseError::eos("expected a register")),
+        }
+    }
+
+    fn take_symbol(&mut self) -> Result<SymbolId> {
+        match self.stream().next() {
+            Some((Token::Symbol(label), span)) => {
+                let id = self.context()
+                    .symbol_table
+                    .get_or_create(label.to_string());
+
+                let sym = self.context()
+                    .symbol_table
+                    .get_symbol_mut(id);
+
+                sym.get_mut::<References>().push(span);
+                sym.set::<Label>(Some(label.to_string()));
+
+                Ok(id)
+            },
+            Some((_, span)) => Err(ParseError::new(span, "expected a symbol")),
+            None => Err(ParseError::eos("expected a symbol")),
+        }
+    }
+
+    fn take_literal(&mut self) -> Result<i32> {
+        match self.stream().next() {
+            Some((Token::Literal(num), _)) => Ok(num),
+            Some((_, span)) => Err(ParseError::new(span, "expected a literal")),
+            None => Err(ParseError::eos("expected a literal")),
+        }
+    }
+
+    fn take_mode(&mut self) -> Result<Mode> {
+        let res = self.apply(either(
+            Self::take_token(Token::ImmediateModifier),
+            Self::take_token(Token::IndirectModifier),
+        ))?;
+
+        match res {
+            Either::Left(_) => Ok(Mode::Immediate),
+            Either::Right(_) => Ok(Mode::Indirect),
+        }
+    }
+
+    fn take_token(token: Token<'t>)
+        -> impl FnOnce(&mut Parser<'t>) -> Result<Token<'t>>
+    {
+        let ctx = format!("expected token {:?}", token);
+        move |parser| {
+            match parser.stream().next() {
+                Some((t, _)) if t == token => Ok(t),
+                Some((_, span)) => Err(ParseError::new(span, ctx)),
+                None => Err(ParseError::eos(ctx)),
+            }
+        }
+    }
+
+    fn take_value(&mut self) -> Result<Value> {
+        let p = either(Self::take_symbol, Self::take_register);
+        let p = either(Self::take_literal, p);
+
+        let res = self.apply(p).context("expected a symbol, a literal or a register")?;
+
+        match res {
+            Either::Left(num) => Ok(Value::Immediate(num as u16)),
+            Either::Right(Either::Left(sym)) => Ok(Value::Symbol(sym)),
+            Either::Right(Either::Right(reg)) => Ok(Value::Register(reg)),
+        }
+    }
+
+    fn assert_token<'a>(token: Token<'a>)
+        -> impl FnOnce(&mut Parser<'a>) -> Result<()> + 'a
+    {
+        move |parser| {
+            match parser.stream().next() {
+                None => Err(ParseError::eos(format!("expected token {:?}", token))),
+                Some((t, _)) if t == token => Ok(()),
+                Some((_, span)) => Err(ParseError::new(span, format!("expected token {:?}", token))),
+            }
+        }
+    }
+
+    fn take_index_register(&mut self) -> Result<Option<Register>> {
+        if self.apply(Self::assert_token(Token::IndexBegin)).is_ok() {
+            let reg = self.apply(Self::take_register)?;
+            self.apply(Self::assert_token(Token::IndexEnd))?;
+
+            return Ok(Some(reg));
+        }
+
+        Ok(None)
+    }
+
+    fn take_second_operand(&mut self) -> Result<SecondOperand> {
+        let mode = self.apply(Self::take_mode).ok().unwrap_or(Mode::Direct);
+        let value = self.apply(Self::take_value)?;
+        let index = self.apply(Self::take_index_register)?;
+
+        Ok(SecondOperand {
+            mode,
+            value,
+            index,
+        })
+    }
+
+    fn take_concrete_instruction(&mut self) -> Result<ConcreteInstruction> {
+        let opcode = self.apply(Self::take_concrete_opcode)?;
+
+        if opcode == OpCode::NoOperation {
+            return Ok(ConcreteInstruction {
+                label: None,
+                opcode,
+                operand1: Register::R0,
+                operand2: SecondOperand {
+                    mode: Mode::Immediate,
+                    value: Value::Immediate(0),
+                    index: None,
+                },
+            });
+        }
+
+        if let OpCode::Jump { condition: JumpCondition::Unconditional, .. } = opcode {
+            let operand2 = self.apply(Self::take_second_operand)?;
+
+            return Ok(ConcreteInstruction {
+                label: None,
+                opcode,
+                operand1: Register::R0,
+                operand2,
+            });
+        }
+
+        let operand1 = self.apply(Self::take_register)?;
+
+        if let OpCode::PushRegisters | OpCode::PopRegisters | OpCode::Not = opcode {
+            return Ok(ConcreteInstruction {
+                label: None,
+                opcode,
+                operand1,
+                operand2: SecondOperand {
+                    mode: Mode::Immediate,
+                    value: Value::Immediate(0),
+                    index: None,
+                },
+            });
+        }
+
+        self.apply(Self::assert_token(Token::ParameterSeparator))
+            .context("expected a comma")?;
+
+        let operand2 = self.apply(Self::take_second_operand)
+            .context("invalid second operand")?;
+
+        Ok(ConcreteInstruction {
+            label: None,
+            opcode,
+            operand1,
+            operand2,
+        })
+    }
+
+    fn take_pseudo_instruction(&mut self) -> Result<PseudoInstruction> {
+        let opcode = self.apply(Self::take_pseudo_opcode)?;
+        let operand = self.apply(Self::take_literal)?;
+
+        match opcode {
+            PseudoOpCode::DC | PseudoOpCode::EQU => Ok(PseudoInstruction {
+                value: operand,
+                size: 1,
+            }),
+            PseudoOpCode::DS => Ok(PseudoInstruction {
+                value: 0,
+                size: operand as u16,
+            }),
+        }
+    }
+
+    fn take_instruction(&mut self) -> Result<SymbolicInstruction> {
+        let p = either(Self::take_concrete_instruction, Self::take_pseudo_instruction);
+
+        match self.apply(p)? {
+            Either::Left(ins) => Ok(SymbolicInstruction::Concrete(ins)),
+            Either::Right(ins) => Ok(SymbolicInstruction::Pseudo(ins)),
+        }
+    }
+
+    fn take_program(&mut self) -> Result<Vec<InstructionEntry>> {
+        let mut program = Vec::new();
+
+        'outer: loop {
+            let mut labels = Vec::new();
+
+            loop {
+                match self.apply(Self::take_symbol) {
+                    Ok(sym) => labels.push(sym),
+                    Err(ParseError { kind: ErrorKind::EndOfStream, .. }) => break 'outer,
+                    Err(_) => break,
+                }
+            }
+
+            let start = self.span_next().cloned();
+
+            let instruction = self.apply(Self::take_instruction)?;
+
+            let end = self.span().clone();
+
+            println!("Line: {:?} {:?}", start, end);
+
+            let span = match (start, end) {
+                (Some(start), Some(end)) => Some(start.end .. end.start),
+                _ => None,
+            };
+
+            program.push(InstructionEntry {
+                labels,
+                instruction,
+                span,
+            });
+        }
+
+        Ok(program)
+    }
+}
+
+struct SpanTracker<P> {
+    parser: P,
+    start: usize,
+    end: usize,
+}
+
+impl<'a,P> SpanTracker<P> where P: ParserTrait<(Token<'a>, Span)> {
+    fn new(parser: P) -> SpanTracker<P> {
+        let start = parser.span()
+            .map(|span| span.start)
+            .unwrap_or(0);
+
+        SpanTracker {
+            parser,
+            start,
+            end: start,
+        }
+    }
+
+    fn span(self) -> Span {
+        self.start .. self.end
+    }
+}
+
+impl<'a, P> ParserTrait<(Token<'a>, Span)> for SpanTracker<P> where P: ParserTrait<(Token<'a>, Span)> {
+    type Context = P::Context;
+
+    fn span(&self) -> Option<&Span> {
+        self.parser.span()
+    }
+
+    fn span_next(&mut self) -> Option<&Span> {
+        self.parser.span_next()
+    }
+
+    fn parts(&mut self) -> (&mut dyn SeekStream<Item=(Token<'a>, Span)>, &mut Self::Context) {
+        self.parser.parts()
+    }
+}
+
+/*impl<'a> Parser<'a> {
     fn from_str(input: &'a str) -> Parser<'a> {
         Parser {
             stream: TokenStream::from_str(input),
@@ -274,7 +590,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn take_instruction(&mut self, op: OpCode) -> Result<'a, ConcreteInstruction, ErrorKind<'a>> {
+    fn take_instruction(&mut self, op: OpCode) -> Result<ConcreteInstruction> {
         let operand1 = match_token!(self.stream, {
             Token::Register(r) => r,
             other => match op {
@@ -475,11 +791,11 @@ impl<'a> Parser<'a> {
 
         Ok(instructions)
     }
-}
+}*/
 
 /// Parse a single line of assembly.
 pub fn parse_line(input: &str)
-    -> StdResult<Option<(Option<&str>, SymbolicInstruction)>, ParseError>
+    -> Result<Option<(Option<&str>, SymbolicInstruction)>>
 {
     unimplemented!()
 }
@@ -489,10 +805,10 @@ pub fn parse_line(input: &str)
 /// You propably want to use this via [Program::parse](crate::symbolic::Program::parse).
 pub fn parse_symbolic_file(input: &str) -> Result<Program> {
     let mut parser = Parser::from_str(input);
-    let instructions = parser.parse()?;
+    let instructions = parser.apply(Parser::take_program)?;
 
     Ok(Program {
-        symbol_table: parser.symbol_table,
+        symbol_table: parser.state.symbol_table,
         instructions,
     })
 }

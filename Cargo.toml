@@ -32,3 +32,8 @@ slog = "2.5"
 slog-term = { version = "2.4.2", optional = true }
 slog-async = { version = "2.3.0", optional = true }
 logos = "0.11.4"
+itertools = "0.9.0"
+
+[dev-dependencies]
+slog-term = { version = "2.4.2" }
+slog-async = { version = "2.3.0" }

@@ -252,6 +252,21 @@ impl SymbolTable {
         id
     }
 
+    pub fn get_or_create(&mut self, label: String) -> SymbolId {
+        if let Some(symbol) = self.inner.get(&label) {
+            return symbol.get::<SymbolId>().into_owned();
+        }
+
+        let mut symbol = SymbolInfo::default();
+        let id = SymbolId::default();
+        symbol.set::<SymbolId>(id);
+
+        self.id_table.insert(id, label.clone());
+        self.inner.insert(label.clone(), symbol);
+
+        id
+    }
+
     pub fn get_symbol(&self, id: SymbolId) -> &SymbolInfo {
         let label = self.id_table.get(&id).unwrap();
         self.inner.get(label).unwrap()

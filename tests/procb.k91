@@ -1,0 +1,40 @@
+R	DC	24
+T	DC	0
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; program procB.k91 
+; demonstrate call-by-reference parameter usage
+;
+main    LOAD  R1,=1 ; retain this value
+
+	; call procB (200, R, T)
+        PUSH  SP, =200
+        PUSH  SP, R
+        PUSH  SP, =T 
+
+        CALL  SP, =procB
+
+        ADD   R1, T
+        OUT   R1, =CRT	
+        SVC   SP, =HALT
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; procB - simple procedure to compute ...
+; 	parX  - int call-by-value
+;	parY  - int call-by-value
+;	parpZ - int call-by-reference
+;
+
+parX    EQU  -4 ; relative to FP
+parY    EQU  -3
+parpZ   EQU  -2
+
+procB   PUSH  SP, R1 ; save R1
+        
+        LOAD  R1, parX (FP)
+        MUL   R1, =5
+        ADD   R1, parY (FP)
+        STORE R1, @parpZ (FP)
+ 
+        POP   SP, R1; restore R1
+        EXIT  SP, =3 ; 3 param.

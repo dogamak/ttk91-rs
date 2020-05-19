@@ -606,7 +606,7 @@ impl<Mem, IO> Emulator<Mem, IO> where Mem: Memory, IO: InputOutput {
 
         Ok(Emulator {
             context: Context {
-                r: [0, 0, 0, 0, 0, 0, 0, stack_base_address as i32],
+                r: [0, 0, 0, 0, 0, 0, stack_base_address as i32, stack_base_address as i32],
                 pc: 0,
                 flags: Default::default(),
             },
@@ -1062,14 +1062,13 @@ fn test_stack_grow() {
 #[test]
 fn test_stack_push_pop_registers() {
     let program = crate::symbolic::Program::parse(r#"
-        PUSHR SP, =0
+        PUSHR SP
         COMP  R1, =0
         LOAD  R2, =0
         LOAD  R3, =0
         LOAD  R4, =0
         LOAD  R5, =0
-        LOAD  R6, =0
-        POPR  SP, =0
+        POPR  SP
         SVC   SP, =HALT
     "#).expect("could not parse program");
 
@@ -1082,7 +1081,7 @@ fn test_stack_push_pop_registers() {
 
     // Register R7 is the stack pointer and canot be changed if we want to keep the stack
     // functional.
-    for i in 0..7 {
+    for i in 0..6 {
         emulator.context.r[i] = i as i32;
     }
 
@@ -1095,7 +1094,7 @@ fn test_stack_push_pop_registers() {
         println!("{:?}", emulator.context);
     }
 
-    for i in 0..7 {
+    for i in 0..6 {
         assert_eq!(emulator.context.r[i], i as i32);
     }
     assert_eq!(emulator.context.flags.as_word(), 0b111);

@@ -1,5 +1,5 @@
 use crate::instruction::{OpCode, Register, Mode, Instruction};
-use super::parser::ParseError;
+use crate::parsing::{Error as ParseError, Span};
 use crate::compiler::SourceMap;
 use std::collections::HashMap;
 use crate::symbol_table::{SymbolId, SymbolTable};
@@ -34,7 +34,7 @@ pub enum PseudoOpCode {
 pub struct InstructionEntry {
     pub labels: Vec<SymbolId>,
     pub instruction: SymbolicInstruction,
-    pub source_line: usize,
+    pub span: Option<Span>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -116,7 +116,7 @@ pub struct SecondOperand {
 }
 
 impl Program {
-    pub fn parse(s: &str) -> Result<Program, ParseError> {
+    pub fn parse(s: &str) -> Result<Program, ParseError<String>> {
         super::parser::parse_symbolic_file(s)
     }
 

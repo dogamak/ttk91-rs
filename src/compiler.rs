@@ -14,6 +14,7 @@ use crate::instruction::Instruction;
 
 use std::collections::HashMap;
 use std::convert::TryInto;
+use crate::parsing::Span;
 
 use slog::{o, Logger, Discard, trace, debug};
 
@@ -67,7 +68,8 @@ pub trait CompileTarget: Sized {
     /// - `source_line`: The line number of the instruction in the symbolic assembly source.
     /// - `word`: Value for the word.
     /// - `segment`: Type of the data. Affects the words location in the memory dump.
-    fn push_word(&mut self, source_line: Option<usize>, word: i32, segment: SegmentType) -> Self::Location;
+    /// TODO: Changed source_line to span
+    fn push_word(&mut self, span: Option<Span>, word: i32, segment: SegmentType) -> Self::Location;
 
     /// Declares a new symbol with label `label` in location `address`.
     fn set_symbol(&mut self, label: SymbolId, address: &Self::Location);
@@ -113,7 +115,7 @@ impl CompileTarget for Program {
 
     fn push_word(
         &mut self,
-        _source_line: Option<usize>,
+        _span: Option<Span>,
         word: i32,
         segment: SegmentType,
     ) -> Self::Location {
@@ -180,10 +182,10 @@ pub struct SourceMap<T: CompileTarget> {
     /// The actual artifact of the compilation.
     pub compiled: T,
 
-    tmp: HashMap<T::Location, usize>,
+    tmp: HashMap<T::Location, Span>,
 
     /// Map from memory locations into source assembly line numbers.
-    pub source_map: HashMap<u16, usize>,
+    pub source_map: HashMap<u16, Span>,
 }
 
 impl<T> CompileTarget for SourceMap<T>
@@ -208,11 +210,11 @@ impl<T> CompileTarget for SourceMap<T>
         self.compiled.set_word(loc, word);
     }
 
-    fn push_word(&mut self, source_line: Option<usize>, word: i32, segment: SegmentType) -> Self::Location {
-        let loc = self.compiled.push_word(source_line, word, segment);
+    fn push_word(&mut self, span: Option<Span>, word: i32, segment: SegmentType) -> Self::Location {
+        let loc = self.compiled.push_word(span.clone(), word, segment);
 
-        if let Some(line) = source_line {
-            self.tmp.insert(loc.clone(), line);
+        if let Some(span) = span {
+            self.tmp.insert(loc.clone(), span);
         }
 
         loc
@@ -293,7 +295,7 @@ where
                 let word: u32 = ins.clone().into();
 
                 let loc = target.push_word(
-                    Some(entry.source_line),
+                    entry.span,
                     word as i32,
                     SegmentType::Text,
                 );
@@ -320,7 +322,7 @@ where
             },
             SymbolicInstruction::Pseudo(ins) => {
                 let loc = target.push_word(
-                    Some(entry.source_line),
+                    entry.span.clone(),
                     ins.value,
                     SegmentType::Data,
                 );
@@ -339,7 +341,7 @@ where
 
                 for _ in 0..ins.size-1 {
                     target.push_word(
-                        Some(entry.source_line),
+                        entry.span.clone(),
                         ins.value,
                         SegmentType::Data,
                     );
@@ -437,14 +439,24 @@ MAIN 	LOAD 	R1, X
     let program = symbolic::Program::parse(source).unwrap();
     let prog: SourceMap<bytecode::Program> = compile(program);
 
-    println!("{:?}", prog.source_map);
+    let source_lines = prog.source_map.iter()
+        .map(|(addr, span)| (addr, source[..span.start].split('\n').count()))
+        .collect::<HashMap<_,_>>();
 
-    assert_eq!(prog.source_map.get(&0), Some(&8));
-    assert_eq!(prog.source_map.get(&1), Some(&9));
-    assert_eq!(prog.source_map.get(&2), Some(&10));
-    assert_eq!(prog.source_map.get(&3), Some(&11));
-    assert_eq!(prog.source_map.get(&4), Some(&2));
-    assert_eq!(prog.source_map.get(&5), Some(&3));
+    let lines = prog.source_map.iter()
+        .map(|(addr, span)| (addr, &source[span.clone()]))
+        .collect::<HashMap<_,_>>();
+
+    println!("{:?}", prog.source_map);
+    println!("{:?}", source_lines);
+    println!("{:?}", lines);
+
+    assert_eq!(source_lines.get(&0), Some(&8));
+    assert_eq!(source_lines.get(&1), Some(&9));
+    assert_eq!(source_lines.get(&2), Some(&10));
+    assert_eq!(source_lines.get(&3), Some(&11));
+    assert_eq!(source_lines.get(&4), Some(&2));
+    assert_eq!(source_lines.get(&5), Some(&3));
 
     println!("{:?}", prog.compiled);
 }
