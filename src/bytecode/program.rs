@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use super::parser::{parse_bytecode_file, ParseError};
 use crate::symbol_table::SymbolTable;
 

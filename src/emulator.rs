@@ -7,8 +7,6 @@ use std::io::Read;
 use crate::instruction::{Instruction, OpCode, Mode, JumpCondition, Register};
 use crate::event::{Event, EventListener, EventDispatcher};
 
-use crate::symbol_table::{Address};
-
 use slog::{Logger, error, trace, debug, o};
 
 
@@ -855,6 +853,7 @@ impl Memory for FixedMemory {
 }
 
 impl FixedMemory {
+    #[cfg(test)]
     fn new(size: u16, stack: u16) -> FixedMemory {
         FixedMemory {
             inner: vec![0; size as usize],
@@ -862,6 +861,7 @@ impl FixedMemory {
         }
     }
 
+    #[cfg(test)]
     fn load(&mut self, program: crate::bytecode::Program) {
         for (addr, word) in program.to_words().into_iter().enumerate() {
             self.inner[addr] = word as i32;
@@ -941,160 +941,165 @@ impl Memory for BalloonMemory {
     }
 }
 
-macro_rules! assert_register {
-    ($emulator:expr, $register:expr, $value:expr) => {
-        assert_eq!($emulator.context.r[$register], $value, "Register {} != {}", $register, $value);
-    };
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-macro_rules! assert_symbol {
-    ($emulator:expr, $program:expr, $symbol:expr, $value:expr) => {
-        let addr = $program.symbol_table.get_symbol_by_label_mut($symbol)
-            .expect("no such symbol")
-            .get::<Address>()
-            .expect("symbol to have an address");
-        let value = $emulator.memory.get_data(addr)
-            .expect("symbol points to invalid memory");
-        assert_eq!(value, $value, "Symbol '{}' at {} != {}", $symbol, addr, $value);
-    };
-}
-
-#[test]
-fn test_stack_basic() {
-    let program = crate::symbolic::Program::parse(r#"
-        var1 DC 1234
-        var2 DC 0
-        var3 DC 0
-
-        LOAD R1, =4321
-        LOAD R2, =var2
-
-        PUSH SP, var1
-        PUSH SP, =777
-        PUSH SP, R1
-
-        POP  SP, var1
-        POP  SP, R1
-        POP  SP, @R2
-
-        SVC  SP, =11
-    "#).unwrap();
-    println!("{:?}", program);
-
-    let mut program = program.compile();
-
-    let mut memory = FixedMemory::new(1024, 128);
-    memory.load(program.clone());
-
-    let mut emulator = Emulator::new(memory, TestIo::new()).unwrap();
-
-    while !emulator.halted {
-        println!("{:?}", emulator.get_current_instruction());
-        emulator.step().unwrap();
-        println!("{:?}", emulator.context);
+    macro_rules! assert_register {
+        ($emulator:expr, $register:expr, $value:expr) => {
+            assert_eq!($emulator.context.r[$register], $value, "Register {} != {}", $register, $value);
+        };
     }
 
-    assert_register!(emulator, 1, 777);
-    assert_symbol!(emulator, program, "var3", 0);
-    assert_symbol!(emulator, program, "var1", 4321);
-    assert_symbol!(emulator, program, "var2", 1234);
-}
+    macro_rules! assert_symbol {
+        ($emulator:expr, $program:expr, $symbol:expr, $value:expr) => {
+            let addr = $program.symbol_table.get_symbol_by_label_mut($symbol)
+                .expect("no such symbol")
+                .get::<$crate::symbol_table::Address>()
+                .expect("symbol to have an address");
+            let value = $emulator.memory.get_data(addr)
+                .expect("symbol points to invalid memory");
+            assert_eq!(value, $value, "Symbol '{}' at {} != {}", $symbol, addr, $value);
+        };
+    }
 
-#[test]
-fn test_stack_procedures() {
-    let program = crate::symbolic::Program::parse(r#"
-    var1    DC 0
+    #[test]
+    fn test_stack_basic() {
+        let program = crate::symbolic::Program::parse(r#"
+            var1 DC 1234
+            var2 DC 0
+            var3 DC 0
 
-    main    CALL  SP, =proc
+            LOAD R1, =4321
+            LOAD R2, =var2
+
+            PUSH SP, var1
+            PUSH SP, =777
+            PUSH SP, R1
+
+            POP  SP, var1
+            POP  SP, R1
+            POP  SP, @R2
+
+            SVC  SP, =11
+        "#).unwrap();
+        println!("{:?}", program);
+
+        let mut program = program.compile();
+
+        let mut memory = FixedMemory::new(1024, 128);
+        memory.load(program.clone());
+
+        let mut emulator = Emulator::new(memory, TestIo::new()).unwrap();
+
+        while !emulator.halted {
+            println!("{:?}", emulator.get_current_instruction());
+            emulator.step().unwrap();
+            println!("{:?}", emulator.context);
+        }
+
+        assert_register!(emulator, 1, 777);
+        assert_symbol!(emulator, program, "var3", 0);
+        assert_symbol!(emulator, program, "var1", 4321);
+        assert_symbol!(emulator, program, "var2", 1234);
+    }
+
+    #[test]
+    fn test_stack_procedures() {
+        let program = crate::symbolic::Program::parse(r#"
+        var1    DC 0
+
+        main    CALL  SP, =proc
+                SVC   SP, =HALT
+
+        proc    LOAD  R1, =1234
+                STORE R1, =var1
+                EXIT  SP, =0xABCD
+        "#).unwrap();
+        println!("{:?}", program);
+
+        let mut program = program.compile();
+
+        let mut memory = FixedMemory::new(1024, 128);
+        memory.load(program.clone());
+
+        let mut emulator = Emulator::new(memory, TestIo::new()).unwrap();
+        let mut cycles = 0;
+
+        while !emulator.halted && cycles < 100 {
+            println!("{:?}", emulator.get_current_instruction());
+            emulator.step().unwrap();
+            println!("{:?}", emulator.context);
+            cycles += 1;
+        }
+
+        assert_symbol!(emulator, program, "var1", 1234);
+    }
+
+    #[test]
+    fn test_stack_grow() {
+        let program = crate::symbolic::Program::parse(r#"
+            LOAD  R1, =100
+            PUSH  SP, R1
+            SUB   R1, =1
+            JNZER R1, =0x0001
             SVC   SP, =HALT
+        "#).unwrap();
+        println!("{:?}", program);
 
-    proc    LOAD  R1, =1234
-            STORE R1, =var1
-            EXIT  SP, =0xABCD
-    "#).unwrap();
-    println!("{:?}", program);
+        let program = program.compile();
 
-    let mut program = program.compile();
+        let memory = BalloonMemory::new(program.clone());
 
-    let mut memory = FixedMemory::new(1024, 128);
-    memory.load(program.clone());
+        let mut emulator = Emulator::new(memory, TestIo::new()).unwrap();
+        let mut cycles = 0;
 
-    let mut emulator = Emulator::new(memory, TestIo::new()).unwrap();
-    let mut cycles = 0;
-
-    while !emulator.halted && cycles < 100 {
-        println!("{:?}", emulator.get_current_instruction());
-        emulator.step().unwrap();
-        println!("{:?}", emulator.context);
-        cycles += 1;
+        while !emulator.halted && cycles < 1000 {
+            println!("{:?}", emulator.get_current_instruction());
+            emulator.step().unwrap();
+            println!("{:?}", emulator.context);
+            cycles += 1;
+        }
     }
 
-    assert_symbol!(emulator, program, "var1", 1234);
-}
+    #[test]
+    fn test_stack_push_pop_registers() {
+        let program = crate::symbolic::Program::parse(r#"
+            PUSHR SP
+            COMP  R1, =0
+            LOAD  R2, =0
+            LOAD  R3, =0
+            LOAD  R4, =0
+            LOAD  R5, =0
+            POPR  SP
+            SVC   SP, =HALT
+        "#).expect("could not parse program");
 
-#[test]
-fn test_stack_grow() {
-    let program = crate::symbolic::Program::parse(r#"
-        LOAD  R1, =100
-        PUSH  SP, R1
-        SUB   R1, =1
-        JNZER R1, =0x0001
-        SVC   SP, =HALT
-    "#).unwrap();
-    println!("{:?}", program);
+        let program = program.compile();
+        let mut memory = FixedMemory::new(128, 32);
+        memory.load(program);
 
-    let program = program.compile();
+        let mut emulator = Emulator::new(memory, TestIo::new())
+            .expect("could not initialize emulator");
 
-    let mut memory = BalloonMemory::new(program.clone());
+        // Register R7 is the stack pointer and canot be changed if we want to keep the stack
+        // functional.
+        for i in 0..6 {
+            emulator.context.r[i] = i as i32;
+        }
 
-    let mut emulator = Emulator::new(memory, TestIo::new()).unwrap();
-    let mut cycles = 0;
+        emulator.context.flags.from_word(0b111);
+        
+        while !emulator.halted {
+            println!("{:?}", emulator.get_current_instruction());
+            emulator.step()
+                .expect("error while executing the program");
+            println!("{:?}", emulator.context);
+        }
 
-    while !emulator.halted && cycles < 1000 {
-        println!("{:?}", emulator.get_current_instruction());
-        emulator.step().unwrap();
-        println!("{:?}", emulator.context);
-        cycles += 1;
+        for i in 0..6 {
+            assert_eq!(emulator.context.r[i], i as i32);
+        }
+        assert_eq!(emulator.context.flags.as_word(), 0b111);
     }
-}
-
-#[test]
-fn test_stack_push_pop_registers() {
-    let program = crate::symbolic::Program::parse(r#"
-        PUSHR SP
-        COMP  R1, =0
-        LOAD  R2, =0
-        LOAD  R3, =0
-        LOAD  R4, =0
-        LOAD  R5, =0
-        POPR  SP
-        SVC   SP, =HALT
-    "#).expect("could not parse program");
-
-    let program = program.compile();
-    let mut memory = FixedMemory::new(128, 32);
-    memory.load(program);
-
-    let mut emulator = Emulator::new(memory, TestIo::new())
-        .expect("could not initialize emulator");
-
-    // Register R7 is the stack pointer and canot be changed if we want to keep the stack
-    // functional.
-    for i in 0..6 {
-        emulator.context.r[i] = i as i32;
-    }
-
-    emulator.context.flags.from_word(0b111);
-    
-    while !emulator.halted {
-        println!("{:?}", emulator.get_current_instruction());
-        emulator.step()
-            .expect("error while executing the program");
-        println!("{:?}", emulator.context);
-    }
-
-    for i in 0..6 {
-        assert_eq!(emulator.context.r[i], i as i32);
-    }
-    assert_eq!(emulator.context.flags.as_word(), 0b111);
 }

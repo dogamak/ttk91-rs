@@ -1,8 +1,7 @@
 use ttk91::{
     bytecode::Program,
-    emulator::{Emulator, StdIo, Memory},
+    emulator::Emulator,
     symbolic,
-    instruction::{Mode, OpCode, Register, Instruction},
 };
 
 fn read_program() -> Program {

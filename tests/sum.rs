@@ -1,7 +1,6 @@
 use ttk91::{
     bytecode::Program,
-    emulator::{Emulator, StdIo, TestIo, Memory},
-    instruction::{Mode, OpCode, Register, Instruction},
+    emulator::{Emulator, TestIo},
 };
 
 fn read_program() -> Program {
@@ -12,7 +11,7 @@ fn read_program() -> Program {
 
 #[test]
 fn test_sum_read_program() {
-    let mut p = read_program();
+    let p = read_program();
 
     assert_eq!(p.code.start, 0);
     assert_eq!(p.code.content, vec![

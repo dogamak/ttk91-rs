@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::result::Result as StdResult;
 
 use crate::symbol_table::{SymbolTable, Address};
@@ -6,7 +5,6 @@ use crate::symbol_table::{SymbolTable, Address};
 use nom::{
     IResult,
     bytes::complete::{tag, take_while},
-    branch::alt,
     combinator::{map, map_res},
     multi::{many0, fold_many0},
     sequence::{delimited, terminated, tuple, preceded, separated_pair},
@@ -36,20 +34,6 @@ fn sp(input: Span) -> Result<Span> {
 fn newline(input: Span) -> Result<Span> {
     take_while(|c| NEWLINE_CHARACTERS.contains(c))(input)
 }
-
-fn parse_usize(s: &str) -> std::result::Result<usize, std::num::ParseIntError> {
-    usize::from_str_radix(s, 10)
-}
-
-fn parse_u32(s: &str) -> std::result::Result<u32, std::num::ParseIntError> {
-    u32::from_str_radix(s, 10)
-}
-
-fn is_digit(c: char) -> bool {
-    c.is_digit(10)
-}
-
-//pub type ParseError<'a> = ::nom::Err<::nom::error::VerboseError<&'a str>>;
 
 pub(crate) fn parse_bytecode_file(input: Span) -> StdResult<Program, ParseError> {
     match parse_bytecode_file_nom(input) {
@@ -105,13 +89,6 @@ fn take_u16(base: u32) -> impl Fn(Span) -> Result<u16> {
         take_while(|c: char| c.is_digit(base)),
         |s: Span| u16::from_str_radix(s.fragment, base),
     )(input)
-}
-
-fn take_i32(input: Span) -> Result<u32> {
-    alt((
-        preceded(tag("0x"), take_u32(16)),
-        take_u32(10),
-    ))(input)
 }
 
 fn parse_symbol_table(input: Span) -> Result<SymbolTable> {

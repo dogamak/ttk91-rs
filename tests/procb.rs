@@ -1,12 +1,11 @@
 use ttk91::{
     bytecode,
     symbolic,
-    emulator::{Emulator, StdIo, TestIo, Memory, BalloonMemory},
-    instruction::{Mode, OpCode, Instruction, Register},
+    emulator::{Emulator, TestIo, BalloonMemory},
 };
 
-use slog::{Logger, Discard, Drain, o};
-use slog_term::{TermDecorator, FullFormat, CompactFormat};
+use slog::{Logger, Drain, o};
+use slog_term::{TermDecorator, FullFormat};
 
 fn compile_program() -> bytecode::Program {
     let source_code = include_str!("procb.k91");
@@ -29,12 +28,12 @@ fn test_procb() {
     let logger = Logger::root(drain, o!());
 
     let mut io = TestIo::new();
-    let mut memory = BalloonMemory::new(program);
+    let memory = BalloonMemory::new(program);
     let mut emulator = Emulator::with_logger(memory, &mut io, logger)
         .expect("could not initialize the emulator");
 
     while !emulator.halted {
         println!("{:?}", emulator.get_current_instruction());
-        emulator.step();
+        emulator.step().unwrap();
     }
 }

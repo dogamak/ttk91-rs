@@ -1,22 +1,16 @@
 //! Compilation from assembly source to bytecode.
 
-use crate::symbolic::{
-    self,
-    program::{
-        RelocationKind,
-        SymbolicInstruction,
-    },
-};
+use crate::symbolic;
+use crate::symbolic::program::SymbolicInstruction;
 use crate::symbol_table::{SymbolId, SymbolInfo, SymbolTable, Label, Location, Address};
 
 use crate::bytecode::{Segment, Program};
 use crate::instruction::Instruction;
 
 use std::collections::HashMap;
-use std::convert::TryInto;
 use crate::parsing::Span;
 
-use slog::{o, Logger, Discard, trace, debug};
+use slog::{o, Logger, Discard, trace};
 
 /// Represents the type of a memory segment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -282,7 +276,7 @@ where
     let mut target = T::create(symprog.symbol_table);
 
     let _ = target.symbol_table_mut().define_symbol(0..0, "CRT".to_string(), 11);
-    target.symbol_table_mut().define_symbol(0..0, "HALT".to_string(), 0);
+    let _ = target.symbol_table_mut().define_symbol(0..0, "HALT".to_string(), 0);
 
     let mut relocation_table = HashMap::<SymbolId, Vec<(T::Location, Instruction)>>::new();
 
@@ -382,8 +376,6 @@ where
 
 #[test]
 fn test_compile() {
-    use crate::symbolic::parser::parse_symbolic_file;
-
     let source = r#"
 X 	DC 	13
 Y 	DC 	15

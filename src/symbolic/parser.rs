@@ -4,7 +4,6 @@
 //! you probably want to use via [Program::parse](crate::symbolic::Program::parse).
 
 use slog::{Logger, Discard, trace, o};
-use itertools::Itertools;
 
 use logos::Logos;
 
@@ -89,7 +88,7 @@ impl<'a,T> ParserTrait<(Token<'a>, Span)> for Parser<'a, T> {
 
     fn span_next(&mut self) -> Option<&Span> {
         match self.stream.next() {
-            Some((_, span)) => {
+            Some(_) => {
                 self.stream.seek(-1);
                 self.stream.at_offset(0).map(|t| &t.1)
             },
@@ -339,7 +338,7 @@ where
     /// Like [Parser::parse], tries to parse a program written in symbolic TTK91 assembly.
     /// Unlike [Parser::parse], this function tries it's best to recover from any syntax errors in
     /// order to provide suggestions on how to fix these errors and continue parsing further.
-    fn parse_verbose(&mut self) -> std::result::Result<Vec<Instruction>, Vec<ParseError>> {
+    pub fn parse_verbose(&mut self) -> std::result::Result<Vec<Instruction>, Vec<ParseError>> {
         match self._parse_verbose(None) {
             IterativeParsingResult::Success(program) => Ok(program),
             IterativeParsingResult::Error(error) => Err(vec![error]),
@@ -352,7 +351,7 @@ where
     {
         let logger = self.logger.clone();
 
-        let mut error = match self.parse() {
+        let error = match self.parse() {
             Ok(program) => {
                 if let Some(span) = self.span_next() {
                     trace!(logger, "Trailing Input");
@@ -469,7 +468,7 @@ where
         fixes.sort_by_key(|f| f.0);
 
         if !fixes.is_empty() {
-            let (weight, fixes) = fixes.remove(0);
+            let (_, fixes) = fixes.remove(0);
             IterativeParsingResult::Fixes(fixes)
         } else {
             IterativeParsingResult::Error(ParseError::eos("unexpected end of stream"))
@@ -734,7 +733,7 @@ where
                 match self.apply(Self::take_symbol) {
                     Ok(sym) => labels.push(sym),
                     Err(ParseError { kind: ErrorKind::EndOfStream, .. }) => break 'outer,
-                    Err(err) => break,
+                    Err(_) => break,
                 }
             }
 
@@ -790,93 +789,98 @@ pub fn parse_symbolic_file(input: &str) -> Result<Program> {
     })
 }
 
-/// Returns the line number and the column number of the specified offset in the provided input
-/// buffer.
-fn calc_line_col(input: &str, location: usize) -> (usize, usize) {
-    input[..location]
-        .split('\n')
-        .fold((0,0), |(l,c), line| (l+1,line.len()))
-}
+#[cfg(test)]
+mod tests {
+    use itertools::Itertools;
+    use super::*;
 
-/// Prints the supplied errors in an user friendly format.
-fn print_errors(input: &str, errors: &Vec<ParseError>) {
-    for error in errors {
-        let index = error.span().map(|s| s.start).unwrap_or(input.len());
-        let (error_line, error_col) = calc_line_col(input, index);
+    /// Returns the line number and the column number of the specified offset in the provided input
+    /// buffer.
+    fn calc_line_col(input: &str, location: usize) -> (usize, usize) {
+        input[..location]
+            .split('\n')
+            .fold((0,0), |(l, _), line| (l+1,line.len()))
+    }
 
-        let message = error.context.iter()
-            .filter_map(|ctx| match ctx {
-                Context::Error { message } => Some(message),
-                _ => None,
-            })
-            .join(": ");
+    /// Prints the supplied errors in an user friendly format.
+    fn print_errors(input: &str, errors: &Vec<ParseError>) {
+        for error in errors {
+            let index = error.span().map(|s| s.start).unwrap_or(input.len());
+            let (error_line, error_col) = calc_line_col(input, index);
 
-        let line = input.split('\n').skip(error_line-1).next().unwrap();
-        let prefix = format!("Line {} Column {}: Error: ", error_line, error_col);
-        let old_len = line.len();
-        let line = line.trim_start();
-        let trim_diff = old_len - line.len();
-        println!("{}{}", prefix, line);
-        print!("{}{} ", " ".repeat(prefix.len() + error_col - trim_diff), "^".repeat(error.span().unwrap().len()));
-        println!("{}", message);
+            let message = error.context.iter()
+                .filter_map(|ctx| match ctx {
+                    Context::Error { message } => Some(message),
+                    _ => None,
+                })
+                .join(": ");
 
-        for ctx in &error.context {
-            if let Context::Suggestion { span, message } = ctx {
-                let (error_line, error_col) = calc_line_col(input, span.start);
+            let line = input.split('\n').skip(error_line-1).next().unwrap();
+            let prefix = format!("Line {} Column {}: Error: ", error_line, error_col);
+            let old_len = line.len();
+            let line = line.trim_start();
+            let trim_diff = old_len - line.len();
+            println!("{}{}", prefix, line);
+            print!("{}{} ", " ".repeat(prefix.len() + error_col - trim_diff), "^".repeat(error.span().unwrap().len()));
+            println!("{}", message);
 
-                let line = input.split('\n').skip(error_line-1).next().unwrap();
-                let prefix = format!("Line {} Column {}: Suggestion: ", error_line, error_col);
-                let old_len = line.len();
-                let line = line.trim_start();
-                let trim_diff = old_len - line.len();
-                println!("{}{}", prefix, line);
-                print!("{}{} ", " ".repeat(prefix.len() + error_col - trim_diff), "^".repeat(span.len()));
-                println!("{}", message);
+            for ctx in &error.context {
+                if let Context::Suggestion { span, message } = ctx {
+                    let (error_line, error_col) = calc_line_col(input, span.start);
+
+                    let line = input.split('\n').skip(error_line-1).next().unwrap();
+                    let prefix = format!("Line {} Column {}: Suggestion: ", error_line, error_col);
+                    let old_len = line.len();
+                    let line = line.trim_start();
+                    let trim_diff = old_len - line.len();
+                    println!("{}{}", prefix, line);
+                    print!("{}{} ", " ".repeat(prefix.len() + error_col - trim_diff), "^".repeat(span.len()));
+                    println!("{}", message);
+                }
             }
         }
     }
-}
 
-#[test]
-fn parse_instructions() {
-    let input = r#"
-; sum - laske annettuja lukuja yhteen kunnes nolla annettu
+    #[test]
+    fn parse_instructions() {
+        let input = r#"
+    ; sum - laske annettuja lukuja yhteen kunnes nolla annettu
 
-Luku  DC    0           ; nykyinen luku
-Summa DC    0           ; nykyinen summa
+    Luku  DC    0           ; nykyinen luku
+    Summa DC    0           ; nykyinen summa
 
-Sum   IN    R1, =KBD	; ohjelma alkaa käskystä 0
-      STORE R1, Luku
-      JZER  R1, Done    ; luvut loppu?
-	
-      LOAD  R1, Summa   ; Summa <- Summa+Luku
-      ADDe   R1, Luku	
-      STORE R1, Summa   ; summa muuttujassa, ei rekisterissa?
+    Sum   IN    R1, =KBD	; ohjelma alkaa käskystä 0
+          STORE R1, Luku
+          JZER  R1, Done    ; luvut loppu?
+        
+          LOAD  R1, Summa   ; Summa <- Summa+Luku
+          ADDe   R1, Luku	
+          STORE R1, Summa   ; summa muuttujassa, ei rekisterissa?
 
-      JUMP  Sum
+          JUMP  Sum
 
-Done  LOAD  R1, Summa   ; tulosta summa ja lopeta
-      OUpr   R1, ==CRT
+    Done  LOAD  R1, Summa   ; tulosta summa ja lopeta
+          OUpr   R1, ==CRT
 
-      SVC   SP, =HALT
-    "#;
+          SVC   SP, =HALT
+        "#;
 
-    let mut parser = Parser::from_str(input);
+        let mut parser = Parser::from_str(input);
 
-    use slog::Drain;
-    let decorator = slog_term::TermDecorator::new().build();
-    let drain = slog_term::FullFormat::new(decorator).build().fuse();
-    let drain = slog_async::Async::new(drain)
-        .overflow_strategy(slog_async::OverflowStrategy::Block)
-        .build().fuse();
-    parser.set_logger(&Logger::root(drain, o!()));
+        use slog::Drain;
+        let decorator = slog_term::TermDecorator::new().build();
+        let drain = slog_term::FullFormat::new(decorator).build().fuse();
+        let drain = slog_async::Async::new(drain)
+            .overflow_strategy(slog_async::OverflowStrategy::Block)
+            .build().fuse();
+        parser.set_logger(&Logger::root(drain, o!()));
 
-    let result = parser.parse_verbose();
+        let result = parser.parse_verbose();
 
-    println!("{:?}", result);
+        println!("{:?}", result);
 
-    if let Err(errors) = result {
-        print_errors(input, &errors);
+        if let Err(errors) = result {
+            print_errors(input, &errors);
+        }
     }
 }
-

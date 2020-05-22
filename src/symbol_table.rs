@@ -157,8 +157,6 @@ impl SymbolInfo {
     }
 
     pub fn get<F: SymbolTableField + 'static>(&self) -> Cow<F::Value> {
-        let id = TypeId::of::<F>();
-
         if let Some(s) = self.map.get(&TypeId::of::<F>()) {
             let r = s.get_value().downcast_ref().unwrap();
             // println!("Get ({}) {:?} = {:?}", F::NAME, id, r);
@@ -235,26 +233,6 @@ impl SymbolTable {
         Ok(id)
     }
 
-    pub(crate) fn reference_symbol(&mut self, span: Span, label: String) -> SymbolId {
-        if let Some(symbol) = self.inner.get_mut(&*label) {
-            symbol.get_mut::<References>().push(span);
-            return *symbol.get::<SymbolId>();
-        }
-
-        let mut symbol = SymbolInfo::default();
-
-        let id = SymbolId::default();
-
-        symbol.set::<SymbolId>(id);
-        symbol.set::<References>(vec![span]);
-        symbol.set::<Label>(Some(label.clone()));
-
-        self.inner.insert(label.clone(), symbol);
-        self.id_table.insert(id, label);
-
-        id
-    }
-
     pub fn get_or_create(&mut self, label: String) -> SymbolId {
         if let Some(symbol) = self.inner.get(&label) {
             return symbol.get::<SymbolId>().into_owned();
@@ -284,7 +262,7 @@ impl SymbolTable {
         self.inner.get(label.as_ref())
     }
 
-    pub(crate) fn get_symbol_by_label_mut<S: AsRef<str>>(&mut self, label: S) -> Option<&mut SymbolInfo> {
+    pub fn get_symbol_by_label_mut<S: AsRef<str>>(&mut self, label: S) -> Option<&mut SymbolInfo> {
         self.inner.get_mut(label.as_ref())
     }
 }

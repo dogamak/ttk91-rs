@@ -127,10 +127,6 @@ impl<S> BufferedStream<S> where S: Iterator {
         self.position = 0;
     }
 
-    pub fn inner(&self) -> &S {
-        &self.stream
-    }
-
     pub fn buffer_mut(&mut self) -> &mut Vec<S::Item> {
         &mut self.buffer
     }
@@ -212,8 +208,6 @@ where
         self.buffer.get(index as usize)
     }
 }
-
-type ParserOperation<P,R,C> = FnOnce(&mut P) -> Result<R, Error<C>>;
 
 pub trait Parser<T> {
     type Context;

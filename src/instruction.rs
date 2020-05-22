@@ -409,7 +409,6 @@ impl fmt::Display for Instruction {
 
 impl Into<u32> for Instruction {
     fn into(self) -> u32 {
-        let mut res = self.opcode.as_byte();
         let [imm1, imm2] = self.immediate.to_be_bytes();
 
 
