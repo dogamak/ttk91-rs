@@ -80,13 +80,8 @@ impl From<String> for Context {
 
 type Result<T> = std::result::Result<T, ParseError>;
 
-#[derive(Default)]
-struct State {
-    symbol_table: SymbolTable,
-}
-
-impl<'a> ParserTrait<(Token<'a>, Span)> for Parser<'a> {
-    type Context = State;
+impl<'a,T> ParserTrait<(Token<'a>, Span)> for Parser<'a, T> {
+    type Context = State<T>;
 
     fn span(&self) -> Option<&Span> {
         self.stream.at_offset(-1).map(|t| &t.1)
@@ -107,14 +102,19 @@ impl<'a> ParserTrait<(Token<'a>, Span)> for Parser<'a> {
     }
 }
 
-struct Parser<'a> {
-    logger: Logger,
-    stream: BufferedStream<logos::SpannedIter<'a, Token<'a>>>,
-    state: State,
+#[derive(Default)]
+pub struct State<T> {
+    symbol_table: T,
 }
 
-impl<'a> Parser<'a> {
-    fn from_str(input: &'a str) -> Self {
+pub struct Parser<'a, T=SymbolTable> {
+    logger: Logger,
+    stream: BufferedStream<logos::SpannedIter<'a, Token<'a>>>,
+    state: State<T>,
+}
+
+impl<'a> Parser<'a, SymbolTable> {
+    pub fn from_str(input: &'a str) -> Self {
         let lex = Token::lexer(input);
         let stream = BufferedStream::from(lex.spanned());
 
@@ -124,8 +124,18 @@ impl<'a> Parser<'a> {
             state: Default::default(),
         }
     }
+}
 
-    fn set_logger(&mut self, logger: &Logger) {
+impl<'a, T> Parser<'a, T> {
+    pub fn with_symbol_table<T2>(self, symbol_table: T2) -> Parser<'a, T2> {
+        Parser {
+            logger: self.logger,
+            stream: self.stream,
+            state: State { symbol_table },
+        }
+    }
+
+    pub fn set_logger(&mut self, logger: &Logger) {
         self.logger = logger.new(o!("parsing" => true));
     }
 }
@@ -296,7 +306,27 @@ enum IterativeParsingResult<T,E> {
     Error(E),
 }
 
-impl<'t> Parser<'t> {
+impl<'t> Parser<'t, SymbolTable> {
+    pub fn parse_instruction(input: &'t str) -> Result<SymbolicInstruction> {
+        Parser::<SymbolTable>::from_str(input).apply(Parser::take_instruction)
+    }
+}
+
+impl<'t, T> Parser<'t, T>
+where
+    T: std::borrow::BorrowMut<SymbolTable>,
+{
+    /// Parse a single line of assembly.
+    pub fn parse_line(&mut self)
+        -> Result<(Option<SymbolId>, SymbolicInstruction)>
+    {
+        let label = self.apply(Self::take_symbol).ok();
+
+        let instruction = self.apply(Parser::take_instruction)?;
+
+        Ok((label, instruction))
+    }
+
     /// Tries to parse a program written in symbolic TTK91 assembly. Fails on the first
     /// encountered error and returns it.
     fn parse(&mut self) -> Result<Vec<Instruction>> {
@@ -485,10 +515,12 @@ impl<'t> Parser<'t> {
             Some((Token::Symbol(label), span)) => {
                 let id = self.context()
                     .symbol_table
+                    .borrow_mut()
                     .get_or_create(label.to_string());
 
                 let sym = self.context()
                     .symbol_table
+                    .borrow_mut()
                     .get_symbol_mut(id);
 
                 sym.get_mut::<References>().push(span);
@@ -542,7 +574,7 @@ impl<'t> Parser<'t> {
 
     /// Returns a parsing function that either parses an token and returns it or fails.
     fn take_token(token: Token<'t>)
-        -> impl FnOnce(&mut Parser<'t>) -> Result<Token<'t>>
+        -> impl FnOnce(&mut Parser<'t,T>) -> Result<Token<'t>>
     {
         let ctx = format!("expected token {:?}", token);
         move |parser| {
@@ -556,7 +588,7 @@ impl<'t> Parser<'t> {
 
     /// Returns a parsing function which either consumes the specified token or fails.
     fn assert_token(token: Token<'t>)
-        -> impl FnOnce(&mut Parser<'t>) -> Result<()>
+        -> impl FnOnce(&mut Parser<'t,T>) -> Result<()>
     {
         move |parser| parser.apply(Self::take_token(token)).map(|_| ())
     }
@@ -681,7 +713,7 @@ impl<'t> Parser<'t> {
     }
 
     /// Tries to parse an instruction, which can be either pseudo or concrete.
-    fn take_instruction(&mut self) -> Result<SymbolicInstruction> {
+    pub fn take_instruction(&mut self) -> Result<SymbolicInstruction> {
         let p = either(Self::take_concrete_instruction, Self::take_pseudo_instruction);
 
         match self.apply(p)? {

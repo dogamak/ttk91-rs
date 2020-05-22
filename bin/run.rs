@@ -1,7 +1,9 @@
 use ttk91::{
-    symbolic,
     bytecode,
-    error::ParseError,
+    symbolic::{
+        self,
+        parser::ParseError,
+    },
     emulator::{Emulator, Memory, StdIo},
 };
 use std::env::args;
@@ -16,14 +18,20 @@ enum Error {
     IO(std::io::Error),
 }
 
+impl From<ParseError> for Error {
+    fn from(_: ParseError) -> Error {
+        Error::Parse
+    }
+}
+
 impl From<std::io::Error> for Error {
     fn from(e: std::io::Error) -> Error {
         Error::IO(e)
     }
 }
 
-impl<K> From<ParseError<K>> for Error {
-    fn from(e: ParseError<K>) -> Error {
+impl<K> From<ttk91::error::ParseError<K>> for Error {
+    fn from(_: ttk91::error::ParseError<K>) -> Error {
         Error::Parse
     }
 }

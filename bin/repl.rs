@@ -11,12 +11,18 @@ use slog::{Drain, Logger, Discard, o};
 use slog_term::{TermDecorator, FullFormat};
 
 use ttk91::{
-    emulator::{Memory, InputOutput, Emulator, StdIo},
+    emulator::{Memory, Emulator, StdIo},
     instruction::{Instruction, Register},
+    symbol_table::{
+        Label,
+        Address,
+        SymbolId,
+        SymbolTable,
+    },
     symbolic::{
         parser::{
+            Parser,
             ParseError,
-            parse_line,
         },
         program::{
             SymbolicInstruction,
@@ -233,7 +239,7 @@ impl ::std::fmt::Display for Error {
         match self {
             Error::CommandError(ce) => write!(f, "command error: {}", ce),
             Error::MemoryError(me) => write!(f, "memory error: {}", me),
-            Error::ParseError(e) => write!(f, "parse error: {}", e),
+            Error::ParseError(e) => write!(f, "parse error: {:?}", e), // FIXME
             Error::Incomplete => write!(f, "incomplete input"),
             Error::UnknownSymbol(sym) => write!(f, "unknown symbol: {}", sym),
         }
@@ -260,7 +266,7 @@ impl From<CommandError> for Error {
 
 struct REPL {
     memory: SharedMemory,
-    symbol_table: HashMap<String, u16>,
+    symbol_table: SymbolTable,
     emulator: Emulator<SharedMemory, StdIo>,
     logger: Logger,
 }
@@ -269,10 +275,17 @@ impl REPL {
     fn new() -> Result<REPL, MemoryError> {
         let memory = SharedMemory::new();
 
-        let mut symbol_table = HashMap::new();
+        let mut symbol_table = SymbolTable::new();
 
-        symbol_table.insert("CRT".into(), 0);
-        symbol_table.insert("HALT".into(), 11);
+        let crt = symbol_table.get_or_create("CRT".into());
+        let crt = symbol_table.get_symbol_mut(crt);
+        crt.set::<Address>(Some(0));
+        crt.set::<Label>(Some("CRT".into()));
+
+        let crt = symbol_table.get_or_create("HALT".into());
+        let crt = symbol_table.get_symbol_mut(crt);
+        crt.set::<Address>(Some(11));
+        crt.set::<Label>(Some("HALT".into()));
 
         let mut emulator = Emulator::new(memory.clone(), StdIo)?;
         emulator.context.pc = 0x8000;
@@ -314,21 +327,25 @@ impl REPL {
                 println!("  .pi <ins>, .print_instruction <ins>  Print the parsed instruction");
             },
             ("s", [symbol]) | ("symbol", [symbol]) => {
-                let addr = self.symbol_table.get(&symbol.to_string())
+                let addr = self.symbol_table.get_symbol_by_label(symbol)
+                    .and_then(|sym| sym.get::<Address>().into_owned())
                     .ok_or(Error::UnknownSymbol(symbol.to_string()))?;
 
-                let value = self.memory.get_data(*addr as u16)?;
+                let value = self.memory.get_data(addr)?;
 
                 println!("Symbol '{}' @ {:x} = {}", symbol, addr, value);
             },
             ("symbols", _) => {
-                for (symbol, addr) in &self.symbol_table {
-                    let value = match self.memory.get_data(*addr as u16) {
-                        Ok(value) => value,
-                        Err(_) => continue,
+                for symbol in self.symbol_table.iter() {
+                    let addr = symbol.get::<Address>().into_owned().unwrap_or(0);
+                    let label = symbol.get::<Label>().into_owned().unwrap_or("<UNKNOWN>".to_string());
+
+                    let value = match self.memory.get_data(addr) {
+                        Ok(value) => value.to_string(),
+                        Err(_) => "#ERROR#".to_string(),
                     };
 
-                    println!("Symbol '{}' @ {:x} = {}", symbol, addr, value);
+                    println!("Symbol '{}' @ {:x} = {}", label, addr, value);
                 }
             },
             ("regs", _) | ("registers", _) => {
@@ -350,10 +367,7 @@ impl REPL {
                 println!("Register {} = {}", register, value);
             },
             ("print_instruction", _) | ("pi", _) => {
-                let ins = match parse_line(rest)? {
-                    None => return Ok(()),
-                    Some((_, ins)) => ins,
-                };
+                let ins = Parser::parse_instruction(rest)?;
 
                 match ins {
                     SymbolicInstruction::Pseudo(ins) => {
@@ -365,10 +379,14 @@ impl REPL {
                         match sins.relocation_symbol() {
                             None => {},
                             Some(entry) => {
-                                if let Some(addr) = self.symbol_table.get(&entry.symbol) {
+                                let addr = self.symbol_table.get_symbol(entry.symbol)
+                                    .get::<Address>()
+                                    .into_owned();
+
+                                if let Some(addr) = addr {
                                     let imm = match entry.kind {
-                                        RelocationKind::Address => *addr as u16,
-                                        RelocationKind::Value => self.memory.get_data(*addr)? as u16,
+                                        RelocationKind::Address => addr,
+                                        RelocationKind::Value => self.memory.get_data(addr)? as u16,
                                     };
 
                                     ins.immediate = imm;
@@ -402,7 +420,8 @@ impl REPL {
                 Ok(()) => {},
                 Err(err) => {
                     if let Error::ParseError(err) = err {
-                        eprintln!("Error: {}", err.verbose(&input));
+                        eprintln!("Error: {:?}", err);
+                        // TODO: eprintln!("Error: {}", err.verbose(&input));
                     } else {
                         eprintln!("Error: {}", err);
                     }
@@ -417,17 +436,18 @@ impl REPL {
             return Ok(());
         }
 
-        let (label, ins) = match parse_line(&input[..input.len()-1])? {
-            None => return Ok(()),
-            Some((label, ins)) => (label, ins),
-        };
+        let (label, ins) = Parser::from_str(&input[..input.len()-1])
+            .with_symbol_table(&mut self.symbol_table)
+            .parse_line()?;
 
         match ins {
             SymbolicInstruction::Pseudo(ins) => {
                 let addr = self.memory.push_data(ins.value)?;
 
-                if let Some(label) = label {
-                    self.symbol_table.insert(label.to_string(), addr);
+                if let Some(symbol) = label {
+                    let symbol =self.symbol_table.get_symbol_mut(symbol);
+                    symbol.set::<Address>(Some(addr));
+                    let label = symbol.get::<Label>().into_owned().unwrap_or("UNKNOWN".into());
                     println!("Symbol {} at address {}", label, addr);
                 }
             },
@@ -437,19 +457,27 @@ impl REPL {
                 match sins.relocation_symbol() {
                     None => {},
                     Some(entry) => {
-                        let addr = self.symbol_table.get(&entry.symbol)
-                            .ok_or(Error::UnknownSymbol(entry.symbol))?;
+                        let addr = self.symbol_table.get_symbol(entry.symbol)
+                            .get::<Address>()
+                            .expect("expected a symbol to have an address");
 
                         let imm = match entry.kind {
-                            RelocationKind::Address => *addr as u16,
-                            RelocationKind::Value => self.memory.get_data(*addr)? as u16,
+                            RelocationKind::Address => addr,
+                            RelocationKind::Value => self.memory.get_data(addr)? as u16,
                         };
 
                         ins.immediate = imm;
                     },
                 }
 
-                let _addr = self.memory.push_instruction(ins.clone())?;
+                let addr = self.memory.push_instruction(ins.clone())?;
+
+                if let Some(symbol) = label {
+                    let symbol =self.symbol_table.get_symbol_mut(symbol);
+                    symbol.set::<Address>(Some(addr));
+                    let label = symbol.get::<Label>().into_owned().unwrap_or("UNKNOWN".into());
+                    println!("Symbol {} at address {}", label, addr);
+                }
 
                 while self.emulator.context.pc < self.memory.code_tail()?  {
                     let ins = self.memory.get_instruction(self.emulator.context.pc)?;

@@ -762,6 +762,15 @@ impl InputOutput for StdIo {
     fn input(&mut self, device: u16) -> i32 {
         match device {
             0 => {
+                std::io::stdin()
+                    .bytes()
+                    .next()
+                    .transpose()
+                    .unwrap_or(None)
+                    .map(|byte| byte as i32)
+                    .unwrap_or(0xFFFF)
+            },
+            1 => {
                 let mut line = String::new();
 
                 std::io::stdin().read_line(&mut line)
@@ -769,15 +778,6 @@ impl InputOutput for StdIo {
 
                 line[..line.len()-1]
                     .parse()
-                    .unwrap_or(0xFFFF)
-            },
-            1 => {
-                std::io::stdin()
-                    .bytes()
-                    .next()
-                    .transpose()
-                    .unwrap_or(None)
-                    .map(|byte| byte as i32)
                     .unwrap_or(0xFFFF)
             },
             _ => 0,
@@ -792,7 +792,6 @@ impl InputOutput for StdIo {
                           .unwrap_or("<Invalid Character>".to_string())),
             _ => (),
         }
-        println!("{:?}", data);
     }
 
     fn supervisor_call(&mut self, _code: u16) {}
