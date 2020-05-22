@@ -22,6 +22,13 @@ impl<C> Error<C> {
             context: vec![ctx.into()],
         }
     }
+
+    pub fn span(&self) -> Option<&Span> {
+        match self.kind {
+            ErrorKind::EndOfStream => None,
+            ErrorKind::UnexpectedToken { ref span } => Some(span),
+        }
+    }
 }
 
 pub trait ErrorExt<R,C> {
@@ -116,8 +123,24 @@ pub(crate) struct BufferedStream<S: Iterator> {
 }
 
 impl<S> BufferedStream<S> where S: Iterator {
+    pub fn reset(&mut self) {
+        self.position = 0;
+    }
+
     pub fn inner(&self) -> &S {
         &self.stream
+    }
+
+    pub fn buffer_mut(&mut self) -> &mut Vec<S::Item> {
+        &mut self.buffer
+    }
+
+    pub fn remove_token(&mut self, index: usize) -> S::Item {
+        if index < self.position {
+            self.position -= 1;
+        }
+
+        self.buffer.remove(index)
     }
 }
 

@@ -1,6 +1,7 @@
 //! types for representing instructions and their parts
 
 use std::fmt;
+use std::str::FromStr;
 
 /// Describes the predicate for a (un)conditional jump instruction.
 ///
@@ -317,6 +318,23 @@ pub enum Register {
     R5,
     R6,
     R7,
+}
+
+impl FromStr for Register {
+    type Err = ();
+
+    fn from_str(input: &str) -> Result<Self, ()> {
+        match input {
+            "R1" => Ok(Register::R1),
+            "R2" => Ok(Register::R2),
+            "R3" => Ok(Register::R3),
+            "R4" => Ok(Register::R4),
+            "R5" => Ok(Register::R5),
+            "R6" | "SP" => Ok(Register::R6),
+            "R7" | "FP" => Ok(Register::R7),
+            _ => Err(()),
+        }
+    }
 }
 
 impl Register {

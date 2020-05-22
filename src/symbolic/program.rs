@@ -1,7 +1,7 @@
 use crate::instruction::{OpCode, Register, Mode, Instruction};
 use crate::parsing::{Error as ParseError, Span};
+use crate::symbolic::parser::Context;
 use crate::compiler::SourceMap;
-use std::collections::HashMap;
 use crate::symbol_table::{SymbolId, SymbolTable};
 
 #[derive(Debug, Clone)]
@@ -116,7 +116,7 @@ pub struct SecondOperand {
 }
 
 impl Program {
-    pub fn parse(s: &str) -> Result<Program, ParseError<String>> {
+    pub fn parse(s: &str) -> Result<Program, ParseError<Context>> {
         super::parser::parse_symbolic_file(s)
     }
 

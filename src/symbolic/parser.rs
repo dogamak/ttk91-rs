@@ -3,235 +3,82 @@
 //! The only function you problaly are interested in here is [parse_symbolic_file], which
 //! you probably want to use via [Program::parse](crate::symbolic::Program::parse).
 
-use logos::{Logos, Lexer, Span};
+use slog::{Logger, Discard, trace, o};
+use itertools::Itertools;
 
-// use nom::IResult;
+use logos::Logos;
 
-use crate::instruction::{
+use super::ast::{
     JumpCondition,
     Mode,
     OpCode,
+    PseudoOpCode,
     Register,
+    Instruction,
+    Value,
+    ConcreteInstruction,
+    PseudoInstruction,
+    SymbolicInstruction,
+    Program,
+    SecondOperand,
 };
 
 use crate::parsing::{
-    Error as ParseError,
+    BufferedStream,
+    either,
+    Either,
     ErrorExt,
     ErrorKind,
+    Parser as ParserTrait,
     SeekStream,
-    ParseExt,
-    BufferedStream,
-    Either,
-    either,
+    Span,
 };
 
-use crate::symbol_table::{SymbolTable, SymbolId, SymbolInfo, References, Label};
+use crate::symbol_table::{SymbolTable, SymbolId, References, Label};
 
-use super::program::{
-    ConcreteInstruction,
-    PseudoInstruction,
-    PseudoOpCode,
-    InstructionEntry,
-    Program,
-    SecondOperand,
-    SymbolicInstruction,
-    Value,
-};
+use super::token::Token;
 
-use std::fmt;
-use std::result::Result as StdResult;
+pub type ParseError = crate::parsing::Error<Context>;
 
-type Result<T> = std::result::Result<T, ParseError<String>>;
-type TokenStream<'a, 'b> = &'a mut dyn SeekStream<Item=(Token<'b>, Span)>;
-
-fn newline_callback<'a>(lex: &mut Lexer<'a, Token<'a>>) -> logos::Skip {
-    lex.extras.line_number += 1;
-    lex.extras.line_start_offset = lex.span().end; logos::Skip
-}
-
+/// Provides context for a parsing error. Multiple [Context] instances can be associated with a
+/// single [ParseError].
 #[derive(Debug, Clone)]
-pub struct PositionInformation {
-    line_number: usize,
-    line_start_offset: usize,
+pub enum Context {
+    /// This variant provides an suggestion for the user on how to recover from a parsing error.
+    /// Alternatively, this can be used to show linter-like warnings to the user when the parser or
+    /// the compiler is reasonably sure that the user might have wanted to do something else.
+    Suggestion {
+        span: Span,
+        message: String,
+    },
+
+    /// This variant procides context directly relating to the error itself.
+    Error {
+        message: String,
+    },
+
+    /// This variant is used to indicate that the parsing operation itsel was successfull, but
+    /// there are tokens left in the input stream.
+    TrailingInput,
 }
 
-impl Default for PositionInformation {
-    fn default() -> PositionInformation {
-        PositionInformation {
-            line_number: 1,
-            line_start_offset: 0,
+impl From<&str> for Context {
+    fn from(s: &str) -> Context {
+        Context::Error {
+            message: s.to_string(),
         }
     }
 }
 
-#[derive(Logos, Debug, PartialEq, Clone)]
-#[logos(extras = PositionInformation)]
-pub enum Token<'a> {
-    #[error]
-    #[regex(r"[ \t\r\f]", logos::skip)]
-    #[regex(r";[^\n]*", logos::skip)]
-    #[token("\n", newline_callback)]
-    Error,
-
-    #[regex("R[1-7]|SP|FP", register_callback)]
-    Register(Register),
-
-    #[regex("[A-Za-z][A-Za-z0-9_]*", Lexer::slice)]
-    Symbol(&'a str),
-
-    #[regex("(?i)nop|store|load|in|out|add|sub|mul|div|mod|and|or|xor|shl|shr|not|comp|call|exit|push|pop|pushr|popr|svc|jump|jzer|jnzer|jpos|jnpos|jneg|jnneg|jequ|jnequ|jles|jnles|jgre|jngre", operator_callback)]
-    Operator(OpCode),
-
-    #[regex("(?i)dc|ds|equ", pseudo_operator_callback)]
-    PseudoOperator(PseudoOpCode),
-
-    #[token("@")]
-    IndirectModifier,
-
-    #[token("=")]
-    ImmediateModifier,
-
-    #[token(",")]
-    ParameterSeparator,
-
-    #[token("(")]
-    IndexBegin,
-
-    #[token(")")]
-    IndexEnd,
-
-    #[regex("-?[0-9]+", literal_callback)]
-    Literal(i32),
-}
-
-fn pseudo_operator_callback<'a>(lex: &mut Lexer<'a, Token<'a>>) -> std::result::Result<PseudoOpCode, ()> {
-    match lex.slice().to_uppercase().as_ref() {
-        "DC" => Ok(PseudoOpCode::DC),
-        "DS" => Ok(PseudoOpCode::DS),
-        "EQU" => Ok(PseudoOpCode::EQU),
-        _ => Err(()),
-    }
-}
-
-fn operator_callback<'a>(lex: &mut Lexer<'a, Token<'a>>) -> std::result::Result<OpCode, ()> {
-    let opcode = match lex.slice().to_uppercase().as_ref() {
-        "NOP"   => OpCode::NoOperation,
-        "STORE" => OpCode::Store,
-        "LOAD"  => OpCode::Load,
-        "IN"    => OpCode::In,
-        "OUT"   => OpCode::Out,
-        "ADD"   => OpCode::Add,
-        "SUB"   => OpCode::Subtract,
-        "MUL"   => OpCode::Multiply,
-        "DIV"   => OpCode::Divide,
-        "MOD"   => OpCode::Modulo,
-        "AND"   => OpCode::And,
-        "OR"    => OpCode::Or,
-        "XOR"   => OpCode::Xor,
-        "SHL"   => OpCode::ShiftLeft,
-        "SHR"   => OpCode::ShiftRight,
-        "NOT"   => OpCode::Not,
-        "COMP"  => OpCode::Compare,
-        "CALL"  => OpCode::Call,
-        "EXIT"  => OpCode::Exit,
-        "PUSH"  => OpCode::Push,
-        "POP"   => OpCode::Pop,
-        "PUSHR" => OpCode::PushRegisters,
-        "POPR"  => OpCode::PopRegisters,
-        "SVC"   => OpCode::SupervisorCall,
-        "JUMP"  => OpCode::Jump { negated: false, condition: JumpCondition::Unconditional },
-        "JZER"  => OpCode::Jump { negated: false, condition: JumpCondition::Zero },
-        "JNZER" => OpCode::Jump { negated: true,  condition: JumpCondition::Zero },
-        "JPOS"  => OpCode::Jump { negated: false, condition: JumpCondition::Positive },
-        "JNPOS" => OpCode::Jump { negated: true,  condition: JumpCondition::Positive },
-        "JNEG"  => OpCode::Jump { negated: false, condition: JumpCondition::Negative },
-        "JNNEG" => OpCode::Jump { negated: true,  condition: JumpCondition::Negative },
-        "JEQU"  => OpCode::Jump { negated: false, condition: JumpCondition::Equal },
-        "JNEQU" => OpCode::Jump { negated: true,  condition: JumpCondition::Equal },
-        "JLES"  => OpCode::Jump { negated: false, condition: JumpCondition::Less },
-        "JNLES" => OpCode::Jump { negated: true,  condition: JumpCondition::Less },
-        "JGRE"  => OpCode::Jump { negated: false, condition: JumpCondition::Greater },
-        "JNGRE" => OpCode::Jump { negated: true,  condition: JumpCondition::Greater },
-        _ => return Err(()),
-    };
-
-    Ok(opcode)
-}
-
-fn register_callback<'a>(lex: &mut Lexer<'a, Token<'a>>) -> std::result::Result<Register, ()> {
-    match lex.slice() {
-        "R1" => Ok(Register::R1),
-        "R2" => Ok(Register::R2),
-        "R3" => Ok(Register::R3),
-        "R4" => Ok(Register::R4),
-        "R5" => Ok(Register::R5),
-        "R6" | "SP" => Ok(Register::R6),
-        "R7" | "FP" => Ok(Register::R7),
-        _ => Err(()),
-    } 
-}
-
-fn literal_callback<'a>(lex: &mut Lexer<'a, Token<'a>>) -> std::result::Result<i32, std::num::ParseIntError> {
-    lex.slice().parse()
-}
-
-enum SymbolicOpCode {
-    Concrete(OpCode),
-    Pseudo(PseudoOpCode),
-}
-
-#[test]
-fn parse_instructions() {
-    let input = r#"
-; sum - laske annettuja lukuja yhteen kunnes nolla annettu
-
-Luku  DC    0           ; nykyinen luku
-Summa DC    0           ; nykyinen summa
-
-Sum   IN    R1, =KBD	; ohjelma alkaa käskystä 0
-      STORE R1, Luku
-      JZER  R1, Done    ; luvut loppu?
-	
-      LOAD  R1, Summa   ; Summa <- Summa+Luku
-      ADD   R1, Luku	
-      STORE R1, Summa   ; summa muuttujassa, ei rekisterissa?
-
-      JUMP  Sum
-
-Done  LOAD  R1, Summa   ; tulosta summa ja lopeta
-      OUT   R1, =CRT
-
-      SVC   SP, =HALT
-    "#;
-
-    let mut parser = Parser::from_str(input);
-
-    let result = parser.apply(Parser::take_program);
-
-    println!("{:?}", result);
-
-    if let Err(err) = result {
-        if let ErrorKind::UnexpectedToken { span } = err.kind {
-            println!("{:?}", &input[span]);
+impl From<String> for Context {
+    fn from(s: String) -> Context {
+        Context::Error {
+            message: s,
         }
     }
 }
 
-macro_rules! match_token {
-    ( $stream:expr, { $( $pattern:pat => $code:expr, )* $(@peek $token:ident => $peek_arm:expr, )* @eof => $eof_arm:expr $(,)* } ) => {
-        match $stream.peek() {
-            $(Some($pattern) => {
-                if let Some($pattern) = $stream.advance() {
-                    $code
-                } else {
-                    unreachable!()
-                }
-            },)*
-            $(Some($token) => $peek_arm, )*
-            None => $eof_arm,
-        }
-    };
-}
+type Result<T> = std::result::Result<T, ParseError>;
 
 #[derive(Default)]
 struct State {
@@ -261,6 +108,7 @@ impl<'a> ParserTrait<(Token<'a>, Span)> for Parser<'a> {
 }
 
 struct Parser<'a> {
+    logger: Logger,
     stream: BufferedStream<logos::SpannedIter<'a, Token<'a>>>,
     state: State,
 }
@@ -271,32 +119,335 @@ impl<'a> Parser<'a> {
         let stream = BufferedStream::from(lex.spanned());
 
         Parser {
+            logger: Logger::root(Discard, o!()),
             stream,
             state: Default::default(),
         }
     }
+
+    fn set_logger(&mut self, logger: &Logger) {
+        self.logger = logger.new(o!("parsing" => true));
+    }
 }
 
-use crate::parsing::Parser as ParserTrait;
+enum SymbolicOpCode {
+    Concrete(OpCode),
+    Pseudo(PseudoOpCode),
+}
+
+use lazy_static::lazy_static;
+use std::collections::HashMap;
+use edit_distance::edit_distance;
+
+/// Finds the opcode with the mnemonic that has the shortest edit distance to the provided string.
+/// This is used to try and proved helpful suggestions for the user.
+fn find_closest_opcode(label: &str) -> &'static SymbolicOpCode {
+    lazy_static! {
+        static ref MNEMONIC_MAP: HashMap<&'static str, SymbolicOpCode> = {
+            let mut map = HashMap::new();
+
+            map.insert("NOP", SymbolicOpCode::Concrete(OpCode::NoOperation));
+            map.insert("STORE", SymbolicOpCode::Concrete(OpCode::Store));
+            map.insert("LOAD", SymbolicOpCode::Concrete(OpCode::Load));
+            map.insert("IN", SymbolicOpCode::Concrete(OpCode::In));
+            map.insert("OUT", SymbolicOpCode::Concrete(OpCode::Out));
+            map.insert("ADD", SymbolicOpCode::Concrete(OpCode::Add));
+            map.insert("SUB", SymbolicOpCode::Concrete(OpCode::Subtract));
+            map.insert("MUL", SymbolicOpCode::Concrete(OpCode::Multiply));
+            map.insert("DIV", SymbolicOpCode::Concrete(OpCode::Divide));
+            map.insert("MOD", SymbolicOpCode::Concrete(OpCode::Modulo));
+            map.insert("AND", SymbolicOpCode::Concrete(OpCode::And));
+            map.insert("OR", SymbolicOpCode::Concrete(OpCode::Or));
+            map.insert("XOR", SymbolicOpCode::Concrete(OpCode::Xor));
+            map.insert("SHL", SymbolicOpCode::Concrete(OpCode::ShiftLeft));
+            map.insert("SHR", SymbolicOpCode::Concrete(OpCode::ShiftRight));
+            map.insert("NOT", SymbolicOpCode::Concrete(OpCode::Not));
+            map.insert("COMP", SymbolicOpCode::Concrete(OpCode::Compare));
+            map.insert("CALL", SymbolicOpCode::Concrete(OpCode::Call));
+            map.insert("EXIT", SymbolicOpCode::Concrete(OpCode::Exit));
+            map.insert("PUSH", SymbolicOpCode::Concrete(OpCode::Push));
+            map.insert("POP", SymbolicOpCode::Concrete(OpCode::Pop));
+            map.insert("PUSHR", SymbolicOpCode::Concrete(OpCode::PushRegisters));
+            map.insert("POPR", SymbolicOpCode::Concrete(OpCode::PopRegisters));
+            map.insert("SVC", SymbolicOpCode::Concrete(OpCode::SupervisorCall));
+            map.insert(
+                "JUMP",
+                SymbolicOpCode::Concrete(OpCode::Jump {
+                    negated: false,
+                    condition: JumpCondition::Unconditional,
+                }),
+            );
+            map.insert(
+                "JZER",
+                SymbolicOpCode::Concrete(OpCode::Jump {
+                    negated: false,
+                    condition: JumpCondition::Zero,
+                }),
+            );
+            map.insert(
+                "JNZER",
+                SymbolicOpCode::Concrete(OpCode::Jump {
+                    negated: true,
+                    condition: JumpCondition::Zero,
+                }),
+            );
+            map.insert(
+                "JPOS",
+                SymbolicOpCode::Concrete(OpCode::Jump {
+                    negated: false,
+                    condition: JumpCondition::Positive,
+                }),
+            );
+            map.insert(
+                "JNPOS",
+                SymbolicOpCode::Concrete(OpCode::Jump {
+                    negated: true,
+                    condition: JumpCondition::Positive,
+                }),
+            );
+            map.insert(
+                "JNEG",
+                SymbolicOpCode::Concrete(OpCode::Jump {
+                    negated: false,
+                    condition: JumpCondition::Negative,
+                }),
+            );
+            map.insert(
+                "JNNEG",
+                SymbolicOpCode::Concrete(OpCode::Jump {
+                    negated: true,
+                    condition: JumpCondition::Negative,
+                }),
+            );
+            map.insert(
+                "JEQU",
+                SymbolicOpCode::Concrete(OpCode::Jump {
+                    negated: false,
+                    condition: JumpCondition::Equal,
+                }),
+            );
+            map.insert(
+                "JNEQU",
+                SymbolicOpCode::Concrete(OpCode::Jump {
+                    negated: true,
+                    condition: JumpCondition::Equal,
+                }),
+            );
+            map.insert(
+                "JLES",
+                SymbolicOpCode::Concrete(OpCode::Jump {
+                    negated: false,
+                    condition: JumpCondition::Less,
+                }),
+            );
+            map.insert(
+                "JNLES",
+                SymbolicOpCode::Concrete(OpCode::Jump {
+                    negated: true,
+                    condition: JumpCondition::Less,
+                }),
+            );
+            map.insert(
+                "JGRE",
+                SymbolicOpCode::Concrete(OpCode::Jump {
+                    negated: false,
+                    condition: JumpCondition::Greater,
+                }),
+            );
+            map.insert(
+                "JNGRE",
+                SymbolicOpCode::Concrete(OpCode::Jump {
+                    negated: true,
+                    condition: JumpCondition::Greater,
+                }),
+            );
+
+            map.insert("DC", SymbolicOpCode::Pseudo(PseudoOpCode::DC));
+            map.insert("DS", SymbolicOpCode::Pseudo(PseudoOpCode::DS));
+            map.insert("EQU", SymbolicOpCode::Pseudo(PseudoOpCode::EQU));
+            
+            map
+        };
+    }
+
+    let mut distances = MNEMONIC_MAP.iter()
+        .map(|(key, opcode)| (edit_distance(key, label), opcode))
+        .collect::<Vec<_>>();
+
+    distances.sort_by_key(|(distance, _)| *distance);
+
+    distances[0].1
+}
+
+/// An error type for the [Parser::_parse_verbose] function. Provides a middle state in addition to
+/// the success and error states found in [Result]. This middle state [Fixes] represents an error
+/// from which the parser was able to recover from.
+///
+/// [Fixes]: IterativeParsingResult::Fixes
+#[derive(Debug)]
+enum IterativeParsingResult<T,E> {
+    /// The parse operation was successfull without any errors.
+    Success(T),
+
+    /// The parse operation encountered errors, but was able to recover from them.
+    Fixes(Vec<E>),
+
+    /// The parse operation encountered an error from which it could not recover.
+    Error(E),
+}
 
 impl<'t> Parser<'t> {
-    fn parse(&mut self) -> Result<Vec<InstructionEntry>> {
-        Ok(Vec::new())
+    /// Tries to parse a program written in symbolic TTK91 assembly. Fails on the first
+    /// encountered error and returns it.
+    fn parse(&mut self) -> Result<Vec<Instruction>> {
+        self.stream.reset();
+        let res = self.apply(Self::take_program);
+
+        res
     }
 
-    fn parse_second_operand(&mut self) -> Result<SecondOperand> {
-        self.apply(Self::take_second_operand)
-    }
-
-    fn take_opcode(&mut self) -> Result<SymbolicOpCode> {
-        let p = either(Self::take_concrete_opcode, Self::take_pseudo_opcode);
-
-        match self.apply(p)? {
-            Either::Left(op) => Ok(SymbolicOpCode::Concrete(op)),
-            Either::Right(op) => Ok(SymbolicOpCode::Pseudo(op)),
+    /// Like [Parser::parse], tries to parse a program written in symbolic TTK91 assembly.
+    /// Unlike [Parser::parse], this function tries it's best to recover from any syntax errors in
+    /// order to provide suggestions on how to fix these errors and continue parsing further.
+    fn parse_verbose(&mut self) -> std::result::Result<Vec<Instruction>, Vec<ParseError>> {
+        match self._parse_verbose(None) {
+            IterativeParsingResult::Success(program) => Ok(program),
+            IterativeParsingResult::Error(error) => Err(vec![error]),
+            IterativeParsingResult::Fixes(errors) => Err(errors),
         }
     }
 
+    fn _parse_verbose(&mut self, previous_error: Option<ParseError>)
+        -> IterativeParsingResult<Vec<Instruction>, ParseError>
+    {
+        let logger = self.logger.clone();
+
+        let mut error = match self.parse() {
+            Ok(program) => {
+                if let Some(span) = self.span_next() {
+                    trace!(logger, "Trailing Input");
+                    let ctx = Context::TrailingInput;
+                    return IterativeParsingResult::Error(ParseError::new(span.clone(), ctx));
+                } else {
+                    return IterativeParsingResult::Success(program);
+                }
+            },
+            Err(err) => err,
+        };
+
+        if let Some(ref previous_error) = previous_error {
+            let further = match (previous_error.span(), error.span()) {
+                (None, None) => false,
+                (Some(_), None) => true,
+                (None, Some(_)) => false,
+                (Some(s1), Some(s2)) => s1.start < s2.start,
+            };
+
+            trace!(logger, "Checking if error location has changed";
+                "previous" => ?previous_error.span(),
+                "new" => ?error.span(),
+                "further" => further,
+            );
+
+            if !further {
+                return IterativeParsingResult::Error(error);
+            }
+        }
+
+        let mut fixes = Vec::new();
+
+        for i in (0..self.stream.buffer_mut().len()).rev() {
+            let (ref mut token, ref span) = self.stream.buffer_mut()[i];
+            let span = span.clone();
+
+            if let ErrorKind::UnexpectedToken { span: ref error_span } = error.kind {
+                if span.start > error_span.start {
+                    continue;
+                }
+            }
+
+            if let Token::Symbol(label) = token {
+                let replacement = match find_closest_opcode(label) {
+                    SymbolicOpCode::Concrete(op) => Token::Operator(op.clone()),
+                    SymbolicOpCode::Pseudo(op) => Token::PseudoOperator(op.clone()),
+                };
+
+                let original = std::mem::replace(token, replacement.clone());
+
+                trace!(logger, "Attempting fix: Change token";
+                   "original" => ?original,
+                   "replacement" => ?replacement,
+                );
+
+                let res = self._parse_verbose(Some(error.clone()));
+                
+                trace!(logger, "Attempting fix: Parse result: {:?}", res);
+
+                self.stream.buffer_mut()[i].0 = original;
+
+                let errors = match res {
+                    IterativeParsingResult::Success(_program) => Some(Vec::new()),
+                    IterativeParsingResult::Error(_) => None,
+                    IterativeParsingResult::Fixes(fixes) => Some(fixes),
+                };
+
+                if let Some(mut errors) = errors {
+                    let mut error = error.clone();
+
+                    error.context.push(Context::Suggestion {
+                        span: span.clone(),
+                        message: format!("Consider changing this to {:?}", replacement),
+                    });
+
+                    errors.push(error);
+
+                    fixes.push((1, errors));
+                    break;
+                }
+            }
+
+            let token = self.stream.remove_token(i);
+
+            trace!(logger, "Attempting fix: Remove token"; "token" => ?token);
+
+            let res = self._parse_verbose(Some(error.clone()));
+            
+            trace!(logger, "Attempting fix: Parse result: {:?}", res);
+
+            self.stream.buffer_mut().insert(i, token);
+
+            let errors = match res {
+                IterativeParsingResult::Success(_program) => Some(Vec::new()),
+                IterativeParsingResult::Error(_) => None,
+                IterativeParsingResult::Fixes(fixes) => Some(fixes),
+            };
+
+            if let Some(mut errors) = errors {
+                let mut error = error.clone();
+
+                error.context.push(Context::Suggestion {
+                    span: span.clone(),
+                    message: format!("Consider removing this"),
+                });
+
+                errors.push(error);
+
+                fixes.push((2, errors));
+            }
+        }
+
+        fixes.sort_by_key(|f| f.0);
+
+        if !fixes.is_empty() {
+            let (weight, fixes) = fixes.remove(0);
+            IterativeParsingResult::Fixes(fixes)
+        } else {
+            IterativeParsingResult::Error(ParseError::eos("unexpected end of stream"))
+        }
+    }
+
+    /// Tries to parse a "pseudo" opcode, meaning an opcode that has no directly corresponding
+    /// instruction and is meant for preprocessing or other stages of the compilation.
     fn take_pseudo_opcode(&mut self) -> Result<PseudoOpCode> {
         match self.stream().next() {
             Some((Token::PseudoOperator(op), _)) => Ok(op),
@@ -305,6 +456,8 @@ impl<'t> Parser<'t> {
         }
     }
 
+    /// Tries to parse a "concrete" opcode, meaning an opcode that directly corresponds to an
+    /// instruction on the instruction set.
     fn take_concrete_opcode(&mut self) -> Result<OpCode> {
         match self.stream().next() {
             Some((Token::Operator(op), _)) => Ok(op),
@@ -313,6 +466,7 @@ impl<'t> Parser<'t> {
         }
     }
 
+    /// Tries to parse an register (R1-R9, SP or FP).
     fn take_register(&mut self) -> Result<Register> {
         match self.stream().next() {
             Some((Token::Register(reg), _)) => Ok(reg),
@@ -321,6 +475,11 @@ impl<'t> Parser<'t> {
         }
     }
 
+    /// Tries to parse an symbol. If required, allocates an entry for the symbol in the
+    /// [SymbolTable] and returns the symbol's [SymbolId].
+    ///
+    /// Any additional symbol metadata (including it's label) can be accessed via the
+    /// [SymbolTable].
     fn take_symbol(&mut self) -> Result<SymbolId> {
         match self.stream().next() {
             Some((Token::Symbol(label), span)) => {
@@ -342,6 +501,7 @@ impl<'t> Parser<'t> {
         }
     }
 
+    /// Tries to parse an integer literal.
     fn take_literal(&mut self) -> Result<i32> {
         match self.stream().next() {
             Some((Token::Literal(num), _)) => Ok(num),
@@ -350,7 +510,8 @@ impl<'t> Parser<'t> {
         }
     }
 
-    fn take_mode(&mut self) -> Result<Mode> {
+    /// Tries to parse an addressing mode specifier (either `@` or `=`).
+    fn take_modifier(&mut self) -> Result<Mode> {
         let res = self.apply(either(
             Self::take_token(Token::ImmediateModifier),
             Self::take_token(Token::IndirectModifier),
@@ -362,19 +523,10 @@ impl<'t> Parser<'t> {
         }
     }
 
-    fn take_token(token: Token<'t>)
-        -> impl FnOnce(&mut Parser<'t>) -> Result<Token<'t>>
-    {
-        let ctx = format!("expected token {:?}", token);
-        move |parser| {
-            match parser.stream().next() {
-                Some((t, _)) if t == token => Ok(t),
-                Some((_, span)) => Err(ParseError::new(span, ctx)),
-                None => Err(ParseError::eos(ctx)),
-            }
-        }
-    }
-
+    /// Tries to parse a [Value], which can be a integer literal, a symbol or a register.
+    ///
+    /// Take note that the [Value::Symbol] variant contains a [SymbolId], and not the symbol label.
+    /// The symbol label and other information can be fetched and/or modified via the [SymbolTable].
     fn take_value(&mut self) -> Result<Value> {
         let p = either(Self::take_symbol, Self::take_register);
         let p = either(Self::take_literal, p);
@@ -388,18 +540,32 @@ impl<'t> Parser<'t> {
         }
     }
 
-    fn assert_token<'a>(token: Token<'a>)
-        -> impl FnOnce(&mut Parser<'a>) -> Result<()> + 'a
+    /// Returns a parsing function that either parses an token and returns it or fails.
+    fn take_token(token: Token<'t>)
+        -> impl FnOnce(&mut Parser<'t>) -> Result<Token<'t>>
     {
+        let ctx = format!("expected token {:?}", token);
         move |parser| {
             match parser.stream().next() {
-                None => Err(ParseError::eos(format!("expected token {:?}", token))),
-                Some((t, _)) if t == token => Ok(()),
-                Some((_, span)) => Err(ParseError::new(span, format!("expected token {:?}", token))),
+                Some((t, _)) if t == token => Ok(t),
+                Some((_, span)) => Err(ParseError::new(span, ctx)),
+                None => Err(ParseError::eos(ctx)),
             }
         }
     }
 
+    /// Returns a parsing function which either consumes the specified token or fails.
+    fn assert_token(token: Token<'t>)
+        -> impl FnOnce(&mut Parser<'t>) -> Result<()>
+    {
+        move |parser| parser.apply(Self::take_token(token)).map(|_| ())
+    }
+
+    /// Tries to parse an index register construct, including the parentheses.
+    ///
+    /// Note that this function returns an [Option] and so succeeds even if no index register
+    /// construct is present. However, if there is an opening parenthesis, but the rest of the
+    /// constuct is malformed, this function returns an error.
     fn take_index_register(&mut self) -> Result<Option<Register>> {
         if self.apply(Self::assert_token(Token::IndexBegin)).is_ok() {
             let reg = self.apply(Self::take_register)?;
@@ -411,9 +577,23 @@ impl<'t> Parser<'t> {
         Ok(None)
     }
 
+    /// Tries to parse the second operand of an instruction.
+    ///
+    /// The operand consist of an optional addressing mode specifier, a base operand and an
+    /// optional index register. The base operand can be either a symbol, a register or a value and
+    /// is the only required component of the operand.
     fn take_second_operand(&mut self) -> Result<SecondOperand> {
-        let mode = self.apply(Self::take_mode).ok().unwrap_or(Mode::Direct);
+        // Take an optional adressing modifier.  Default to direct addressing mode.
+        // FIXME: This decision sould not be made by the parser and the AST should express the
+        // abence of explicit addressing mode specifier.
+        let mode = self.apply(Self::take_modifier)
+            .ok()
+            .unwrap_or(Mode::Direct);
+
+        // The operand base. A register, a symbol or a literal.
         let value = self.apply(Self::take_value)?;
+
+        // Take the index register if present. Otherwise returns None.
         let index = self.apply(Self::take_index_register)?;
 
         Ok(SecondOperand {
@@ -426,6 +606,7 @@ impl<'t> Parser<'t> {
     fn take_concrete_instruction(&mut self) -> Result<ConcreteInstruction> {
         let opcode = self.apply(Self::take_concrete_opcode)?;
 
+        // The NOP opcode takes no arguments.
         if opcode == OpCode::NoOperation {
             return Ok(ConcreteInstruction {
                 label: None,
@@ -439,6 +620,7 @@ impl<'t> Parser<'t> {
             });
         }
 
+        // The jump instructions that examine the state register take only the second operand.
         if let OpCode::Jump { condition: JumpCondition::Unconditional, .. } = opcode {
             let operand2 = self.apply(Self::take_second_operand)?;
 
@@ -452,6 +634,7 @@ impl<'t> Parser<'t> {
 
         let operand1 = self.apply(Self::take_register)?;
 
+        // The PUSHR, POPR and NOT instructions take only the first operand.
         if let OpCode::PushRegisters | OpCode::PopRegisters | OpCode::Not = opcode {
             return Ok(ConcreteInstruction {
                 label: None,
@@ -465,6 +648,7 @@ impl<'t> Parser<'t> {
             });
         }
 
+        // The ParameterSeparator token (a comma) has no syntactial purpose but is required.
         self.apply(Self::assert_token(Token::ParameterSeparator))
             .context("expected a comma")?;
 
@@ -479,6 +663,7 @@ impl<'t> Parser<'t> {
         })
     }
 
+    /// Tries to parse an "pseudo" instruction, that is, an instruction meant for the preprocessor.
     fn take_pseudo_instruction(&mut self) -> Result<PseudoInstruction> {
         let opcode = self.apply(Self::take_pseudo_opcode)?;
         let operand = self.apply(Self::take_literal)?;
@@ -495,6 +680,7 @@ impl<'t> Parser<'t> {
         }
     }
 
+    /// Tries to parse an instruction, which can be either pseudo or concrete.
     fn take_instruction(&mut self) -> Result<SymbolicInstruction> {
         let p = either(Self::take_concrete_instruction, Self::take_pseudo_instruction);
 
@@ -504,34 +690,36 @@ impl<'t> Parser<'t> {
         }
     }
 
-    fn take_program(&mut self) -> Result<Vec<InstructionEntry>> {
+    /// Tries to parse a whole symbolic program.
+    fn take_program(&mut self) -> Result<Vec<Instruction>> {
         let mut program = Vec::new();
 
         'outer: loop {
             let mut labels = Vec::new();
 
+            // Take any number of labels.
             loop {
                 match self.apply(Self::take_symbol) {
                     Ok(sym) => labels.push(sym),
                     Err(ParseError { kind: ErrorKind::EndOfStream, .. }) => break 'outer,
-                    Err(_) => break,
+                    Err(err) => break,
                 }
             }
 
+            // Get the starting position of the current instruction.
             let start = self.span_next().cloned();
 
             let instruction = self.apply(Self::take_instruction)?;
 
+            // Get the ending position of the current instruction.
             let end = self.span().clone();
-
-            println!("Line: {:?} {:?}", start, end);
 
             let span = match (start, end) {
                 (Some(start), Some(end)) => Some(start.end .. end.start),
                 _ => None,
             };
 
-            program.push(InstructionEntry {
+            program.push(Instruction {
                 labels,
                 instruction,
                 span,
@@ -542,262 +730,19 @@ impl<'t> Parser<'t> {
     }
 }
 
-struct SpanTracker<P> {
-    parser: P,
-    start: usize,
-    end: usize,
-}
-
-impl<'a,P> SpanTracker<P> where P: ParserTrait<(Token<'a>, Span)> {
-    fn new(parser: P) -> SpanTracker<P> {
-        let start = parser.span()
-            .map(|span| span.start)
-            .unwrap_or(0);
-
-        SpanTracker {
-            parser,
-            start,
-            end: start,
-        }
-    }
-
-    fn span(self) -> Span {
-        self.start .. self.end
-    }
-}
-
-impl<'a, P> ParserTrait<(Token<'a>, Span)> for SpanTracker<P> where P: ParserTrait<(Token<'a>, Span)> {
-    type Context = P::Context;
-
-    fn span(&self) -> Option<&Span> {
-        self.parser.span()
-    }
-
-    fn span_next(&mut self) -> Option<&Span> {
-        self.parser.span_next()
-    }
-
-    fn parts(&mut self) -> (&mut dyn SeekStream<Item=(Token<'a>, Span)>, &mut Self::Context) {
-        self.parser.parts()
-    }
-}
-
-/*impl<'a> Parser<'a> {
-    fn from_str(input: &'a str) -> Parser<'a> {
-        Parser {
-            stream: TokenStream::from_str(input),
-            symbol_table: SymbolTable::new(),
-        }
-    }
-
-    fn take_instruction(&mut self, op: OpCode) -> Result<ConcreteInstruction> {
-        let operand1 = match_token!(self.stream, {
-            Token::Register(r) => r,
-            other => match op {
-                OpCode::NoOperation => return Ok(ConcreteInstruction {
-                    label: None,
-                    opcode: op,
-                    operand1: Register::R0,
-                    operand2: SecondOperand {
-                        mode: Mode::Immediate,
-                        value: Value::Immediate(0),
-                        index: None,
-                    },
-                }),
-                _ => return Err(ErrorKind::Expected {
-                    got: other,
-                    expected: "",
-                }),
-            },
-            @eof => return Err(ErrorKind::UnexpectedEOF),
-        });
-
-        match_token!(self.stream, {
-            Token::ParameterSeparator => (),
-            other => match op {
-                OpCode::PushRegisters | OpCode::PopRegisters | OpCode::Not => {
-                    return Ok(ConcreteInstruction {
-                        label: None,
-                        opcode: op,
-                        operand1,
-                        operand2: SecondOperand {
-                            mode: Mode::Immediate,
-                            value: Value::Immediate(0),
-                            index: None,
-                        },
-                    });
-                },
-                _ => return Err(ErrorKind::Expected {
-                    got: other,
-                    expected: "the second operand",
-                }),
-            },
-            @eof => return Err(ErrorKind::UnexpectedEOF),
-        });
-
-        let operand2 = self.take_second_operand()?;
-
-        Ok(ConcreteInstruction {
-            label: None,
-            opcode: op,
-            operand1,
-            operand2,
-        })
-    }
-
-    fn take_second_operand(&mut self) -> Result<'a, SecondOperand, ErrorKind<'a>> {
-        let mode = match_token!(self.stream, {
-            Token::IndirectModifier => Mode::Indirect,
-            Token::ImmediateModifier => Mode::Immediate,
-            @peek _token => Mode::Direct,
-            @eof => return Err(ErrorKind::UnexpectedEOF),
-        });
-
-        let value = match_token!(self.stream, {
-            Token::Register(r) => Value::Register(r),
-            Token::Literal(l) => Value::Immediate(l as u16),
-            Token::Symbol(sym) => {
-                let id = self.symbol_table.reference_symbol(self.stream.span(), sym.to_string());
-                Value::Symbol(id)
-            },
-            other => return Err(ErrorKind::Expected {
-                got: other,
-                expected: "a register or a symbol",
-            }), 
-            @eof => return Err(ErrorKind::UnexpectedEOF),
-        });
-
-
-        let index = match_token!(self.stream, {
-            Token::IndexBegin => {
-                match self.stream.advance() {
-                    Some(Token::Register(r)) => {
-                        match self.stream.advance() {
-                            Some(Token::IndexEnd) => Some(r),
-                            Some(other) => return Err(ErrorKind::Expected {
-                                got: other,
-                                expected: "a closing parenthesis"
-                            }),
-                            None => return Err(ErrorKind::UnexpectedEOF),
-                        }
-                    },
-                    Some(other) => return Err(ErrorKind::Expected {
-                        got: other,
-                        expected: "a register"
-                    }),
-                    None => return Err(ErrorKind::UnexpectedEOF),
-                }
-            },
-            @peek _other => None,
-            @eof => None,
-        });
-
-        Ok(SecondOperand {
-            mode,
-            value,
-            index,
-        })
-    }
-
-    fn take_pseudo_instruction(&mut self, op: PseudoOpCode) -> Result<'a, PseudoInstruction, ErrorKind<'a>> {
-        let operand = match_token!(self.stream, {
-            Token::Literal(l) => l,
-            other => return Err(ErrorKind::Expected {
-                got: other,
-                expected: "",
-            }),
-            @eof => return Err(ErrorKind::UnexpectedEOF),
-        });
-
-        match op {
-            PseudoOpCode::DC => Ok(PseudoInstruction {
-                size: 1,
-                value: operand,
-            }),
-            PseudoOpCode::DS => Ok(PseudoInstruction {
-                size: operand as u16,
-                value: 0,
-            }),
-            PseudoOpCode::EQU => Ok(PseudoInstruction {
-                size: 1,
-                value: operand,
-            }),
-        }
-    }
-
-    fn parse(&mut self) -> Result<'a, Vec<InstructionEntry>> {
-        match self._parse() {
-            Ok(ins) => Ok(ins),
-            Err(kind) => {
-                Err(ParseError {
-                    span: self.stream.span(),
-                    line: self.stream.lexer.extras.line_number,
-                    column: self.stream.lexer.span().start - self.stream.lexer.extras.line_start_offset,
-                    kind,
-                })
-            },
-        }
-    }
-
-    fn _parse(&mut self) -> Result<Vec<InstructionEntry>, ErrorKind<'a>> {
-        let mut instructions = Vec::new();
-        let mut label_acc = Vec::new();
-
-        loop {
-            let source_line = self.stream.lexer.extras.line_number;
-
-            let labels = match_token!(self.stream, {
-                Token::Symbol(label) => {
-                    let res = self.symbol_table.define_symbol(
-                        self.stream.span(),
-                        label.to_string(),
-                        instructions.len() as i32,
-                    );
-
-                    match res {
-                        Ok(id) => {
-                            label_acc.push(id);
-                            continue;
-                        },
-                        Err(id) => return Err(ErrorKind::AlreadyDefined {
-                            symbol: id,
-                            label,
-                        }),
-                    };
-                },
-                @peek _other => {
-                    label_acc.drain(..).collect()
-                },
-                @eof => break,
-            });
-
-            let instruction = match_token!(self.stream, {
-                Token::Operator(op) => SymbolicInstruction::Concrete(self.take_instruction(op)?),
-                Token::PseudoOperator(op) => SymbolicInstruction::Pseudo(self.take_pseudo_instruction(op)?),
-                got => return Err(ErrorKind::Expected {
-                    got,
-                    expected: "an opcode",
-                }),
-                @eof => break,
-            });
-
-            println!("Line: {}", self.stream.lexer.extras.line_number);
-            instructions.push(InstructionEntry {
-                instruction,
-                labels,
-                source_line,
-            });
-        }
-
-        Ok(instructions)
-    }
-}*/
-
 /// Parse a single line of assembly.
 pub fn parse_line(input: &str)
-    -> Result<Option<(Option<&str>, SymbolicInstruction)>>
+    -> Result<(Option<String>, SymbolicInstruction)>
 {
-    unimplemented!()
+    let mut parser = Parser::from_str(input);
+
+    let label = parser.apply(Parser::take_symbol)
+        .ok()
+        .and_then(|id| parser.state.symbol_table.get_symbol(id).get::<Label>().into_owned());
+
+    let instruction = parser.apply(Parser::take_instruction)?;
+
+    Ok((label, instruction))
 }
 
 /// Parse an entier assembly program.
@@ -812,3 +757,94 @@ pub fn parse_symbolic_file(input: &str) -> Result<Program> {
         instructions,
     })
 }
+
+/// Returns the line number and the column number of the specified offset in the provided input
+/// buffer.
+fn calc_line_col(input: &str, location: usize) -> (usize, usize) {
+    input[..location]
+        .split('\n')
+        .fold((0,0), |(l,c), line| (l+1,line.len()))
+}
+
+/// Prints the supplied errors in an user friendly format.
+fn print_errors(input: &str, errors: &Vec<ParseError>) {
+    for error in errors {
+        let index = error.span().map(|s| s.start).unwrap_or(input.len());
+        let (error_line, error_col) = calc_line_col(input, index);
+
+        let message = error.context.iter()
+            .filter_map(|ctx| match ctx {
+                Context::Error { message } => Some(message),
+                _ => None,
+            })
+            .join(": ");
+
+        let line = input.split('\n').skip(error_line-1).next().unwrap();
+        let prefix = format!("Line {} Column {}: Error: ", error_line, error_col);
+        let old_len = line.len();
+        let line = line.trim_start();
+        let trim_diff = old_len - line.len();
+        println!("{}{}", prefix, line);
+        print!("{}{} ", " ".repeat(prefix.len() + error_col - trim_diff), "^".repeat(error.span().unwrap().len()));
+        println!("{}", message);
+
+        for ctx in &error.context {
+            if let Context::Suggestion { span, message } = ctx {
+                let (error_line, error_col) = calc_line_col(input, span.start);
+
+                let line = input.split('\n').skip(error_line-1).next().unwrap();
+                let prefix = format!("Line {} Column {}: Suggestion: ", error_line, error_col);
+                let old_len = line.len();
+                let line = line.trim_start();
+                let trim_diff = old_len - line.len();
+                println!("{}{}", prefix, line);
+                print!("{}{} ", " ".repeat(prefix.len() + error_col - trim_diff), "^".repeat(span.len()));
+                println!("{}", message);
+            }
+        }
+    }
+}
+
+#[test]
+fn parse_instructions() {
+    let input = r#"
+; sum - laske annettuja lukuja yhteen kunnes nolla annettu
+
+Luku  DC    0           ; nykyinen luku
+Summa DC    0           ; nykyinen summa
+
+Sum   IN    R1, =KBD	; ohjelma alkaa käskystä 0
+      STORE R1, Luku
+      JZER  R1, Done    ; luvut loppu?
+	
+      LOAD  R1, Summa   ; Summa <- Summa+Luku
+      ADDe   R1, Luku	
+      STORE R1, Summa   ; summa muuttujassa, ei rekisterissa?
+
+      JUMP  Sum
+
+Done  LOAD  R1, Summa   ; tulosta summa ja lopeta
+      OUpr   R1, ==CRT
+
+      SVC   SP, =HALT
+    "#;
+
+    let mut parser = Parser::from_str(input);
+
+    use slog::Drain;
+    let decorator = slog_term::TermDecorator::new().build();
+    let drain = slog_term::FullFormat::new(decorator).build().fuse();
+    let drain = slog_async::Async::new(drain)
+        .overflow_strategy(slog_async::OverflowStrategy::Block)
+        .build().fuse();
+    parser.set_logger(&Logger::root(drain, o!()));
+
+    let result = parser.parse_verbose();
+
+    println!("{:?}", result);
+
+    if let Err(errors) = result {
+        print_errors(input, &errors);
+    }
+}
+

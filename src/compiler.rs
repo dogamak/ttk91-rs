@@ -279,8 +279,6 @@ where
         .unwrap_or(Logger::root(Discard, o!()))
         .new(o!("stage" => "compilation"));
 
-    slog::warn!(logger, "WARN");
-
     let mut target = T::create(symprog.symbol_table);
 
     let _ = target.symbol_table_mut().define_symbol(0..0, "CRT".to_string(), 11);

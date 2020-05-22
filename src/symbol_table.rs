@@ -150,7 +150,7 @@ use std::borrow::Cow;
 impl SymbolInfo {
     pub fn set<F: SymbolTableField + 'static>(&mut self, value: F::Value) -> Option<F::Value> {
         let id = TypeId::of::<F>();
-        println!("Set ({}) {:?} = {:?}", F::NAME, id, value);
+        // println!("Set ({}) {:?} = {:?}", F::NAME, id, value);
 
         self.map.insert(id, Box::new(SymbolTableEntry::<F> { value }))
             .and_then(|entry| entry.into_value().downcast().ok().map(|b| *b))
@@ -161,11 +161,11 @@ impl SymbolInfo {
 
         if let Some(s) = self.map.get(&TypeId::of::<F>()) {
             let r = s.get_value().downcast_ref().unwrap();
-            println!("Get ({}) {:?} = {:?}", F::NAME, id, r);
+            // println!("Get ({}) {:?} = {:?}", F::NAME, id, r);
             Cow::Borrowed(r)
         } else {
             let v = Default::default();
-            println!("Get ({}) {:?} = {:?} (default)", F::NAME, id, v);
+            // println!("Get ({}) {:?} = {:?} (default)", F::NAME, id, v);
             Cow::Owned(v)
         }
     }
@@ -191,16 +191,19 @@ pub struct _SymbolTableEntry {
 }
 
 impl SymbolTable {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         SymbolTable {
             inner: HashMap::new(),
             id_table: HashMap::new(),
         }
     }
 
-    pub(crate) fn iter_mut(&mut self) -> impl Iterator<Item=&mut SymbolInfo> {
-        self.inner.values_mut()
+    pub fn iter(&self) -> impl Iterator<Item=&SymbolInfo> {
+        self.inner.values()
+    }
 
+    pub fn iter_mut(&mut self) -> impl Iterator<Item=&mut SymbolInfo> {
+        self.inner.values_mut()
     }
 
     pub(crate) fn define_symbol(&mut self, span: Span, label: String, value: i32) -> Result<SymbolId, SymbolId> {
@@ -272,7 +275,7 @@ impl SymbolTable {
         self.inner.get(label).unwrap()
     }
 
-    pub(crate) fn get_symbol_mut(&mut self, id: SymbolId) -> &mut SymbolInfo {
+    pub fn get_symbol_mut(&mut self, id: SymbolId) -> &mut SymbolInfo {
         let label = self.id_table.get(&id).unwrap();
         self.inner.get_mut(label).unwrap()
     }
