@@ -282,7 +282,7 @@ where
 
     for entry in symprog.instructions {
         match entry.instruction {
-            SymbolicInstruction::Concrete(sym_ins) => {
+            SymbolicInstruction::Real(sym_ins) => {
                 let ins: Instruction = sym_ins.clone().into();
                 let word: u32 = ins.clone().into();
 

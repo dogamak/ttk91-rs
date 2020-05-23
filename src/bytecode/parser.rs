@@ -1,4 +1,3 @@
-use std::result::Result as StdResult;
 use logos::Logos;
 
 use crate::parsing::{
@@ -109,12 +108,12 @@ impl<'t> Parser<'t> {
             parser.assert_token(Token::Section(header))
                 .context("Expected ___data___ header")?;
 
-            let header_start = parser.boundary_right().unwrap();
+            let header_start = parser.boundary_right();
             let start = parser.apply(Self::take_number)
                 .context("expected section start address")?;
             let end = parser.apply(Self::take_number)
                 .context("expected section end address")?;
-            let header_end = parser.boundary_left().unwrap();
+            let header_end = parser.boundary_left();
 
             let mut content = Vec::with_capacity((end - start + 1) as usize);
 
@@ -192,14 +191,14 @@ impl<'t> Parser<'t> {
         parser.assert_token(Token::Section(Section::Start))?;
 
         while symbol_table.is_none() || code.is_none() || data.is_none() {
-            let start = parser.boundary_right().unwrap();
+            let start = parser.boundary_right();
 
             match parser.apply(Self::take_section)? {
                 SectionContent::SymbolTable(section) if symbol_table.is_none() => symbol_table = Some(section),
                 SectionContent::Code(section) if code.is_none() => code = Some(section),
                 SectionContent::Data(section) if data.is_none() => data = Some(section),
                 _ => {
-                    let end = parser.boundary_left().unwrap();
+                    let end = parser.boundary_left();
 
                     return Err(Error::new(start..end, Context::RepeatedSection));
                 }

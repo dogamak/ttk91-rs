@@ -215,21 +215,23 @@ pub trait Parser<T> {
     fn stream(&self) -> &Self::Stream;
     fn stream_mut(&mut self) -> &mut Self::Stream;
 
-    fn boundary_right(&mut self) -> Option<usize> {
+    fn boundary_right(&mut self) -> usize {
         let stream = self.stream_mut();
 
         match stream.next() {
-            Some(_) => {
+            Some((_, span)) => {
                 stream.seek(-1);
-                stream.at_offset(0).map(|t| (t.1).start)
+                span.start
             },
-            None => None,
+            None => stream.at_offset(0)
+                .map(|(_, span)| span.end)
+                .unwrap_or(0)
         }
     }
 
-    fn boundary_left(&mut self) -> Option<usize> {
+    fn boundary_left(&mut self) -> usize {
         let stream = self.stream_mut();
-        stream.at_offset(-1).map(|t| (t.1).end)
+        stream.at_offset(-1).map(|t| (t.1).end).unwrap_or(0)
     }
 
     fn apply<P,O,X>(&mut self, op: P) -> Result<O, Error<X>>

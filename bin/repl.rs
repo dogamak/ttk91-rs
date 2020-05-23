@@ -27,6 +27,7 @@ use ttk91::{
         program::{
             SymbolicInstruction,
             RelocationKind,
+            validate_instruction,
         }
     },
 };
@@ -368,12 +369,13 @@ impl REPL {
             },
             ("print_instruction", _) | ("pi", _) => {
                 let ins = Parser::parse_instruction(rest)?;
+                let ins = validate_instruction(ins)?;
 
                 match ins {
                     SymbolicInstruction::Pseudo(ins) => {
                         println!("{:?}", SymbolicInstruction::Pseudo(ins));
                     },
-                    SymbolicInstruction::Concrete(sins) => {
+                    SymbolicInstruction::Real(sins) => {
                         let mut ins: Instruction = sins.clone().into();
 
                         match sins.relocation_symbol() {
@@ -440,6 +442,8 @@ impl REPL {
             .with_symbol_table(&mut self.symbol_table)
             .parse_line()?;
 
+        let ins = validate_instruction(ins)?;
+
         match ins {
             SymbolicInstruction::Pseudo(ins) => {
                 let addr = self.memory.push_data(ins.value)?;
@@ -451,7 +455,7 @@ impl REPL {
                     println!("Symbol {} at address {}", label, addr);
                 }
             },
-            SymbolicInstruction::Concrete(sins) => {
+            SymbolicInstruction::Real(sins) => {
                 let mut ins: Instruction = sins.clone().into();
 
                 match sins.relocation_symbol() {

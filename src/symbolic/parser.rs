@@ -8,18 +8,19 @@ use slog::{Logger, Discard, trace, o};
 use logos::Logos;
 
 use super::ast::{
+    Instruction,
     JumpCondition,
+    Part,
     Mode,
     OpCode,
-    PseudoOpCode,
-    Register,
-    Instruction,
-    Value,
-    ConcreteInstruction,
-    PseudoInstruction,
-    SymbolicInstruction,
     Program,
-    SecondOperand,
+    PseudoInstruction,
+    PseudoOpCode,
+    RealOpCode,
+    Register,
+    Operand,
+    SymbolicInstruction,
+    Value,
 };
 
 use crate::parsing::{
@@ -38,6 +39,8 @@ use crate::parsing::{
 use crate::symbol_table::{SymbolTable, SymbolId, References, Label};
 
 use super::token::Token;
+
+use crate::symbolic::program::{SymbolicInstruction as ValidInstruction, SecondOperand, RealInstruction};
 
 pub type ParseError = crate::parsing::Error<Context>;
 
@@ -95,13 +98,13 @@ impl<'a, T> ParserTrait<Token<'a>> for Parser<'a, T> {
 
 #[derive(Default)]
 pub struct State<T> {
-    symbol_table: T,
+    pub symbol_table: T,
 }
 
 pub struct Parser<'a, T=SymbolTable> {
     logger: Logger,
     stream: BufferedStream<logos::SpannedIter<'a, Token<'a>>>,
-    state: State<T>,
+    pub state: State<T>,
 }
 
 impl<'a> Parser<'a, SymbolTable> {
@@ -131,141 +134,136 @@ impl<'a, T> Parser<'a, T> {
     }
 }
 
-enum SymbolicOpCode {
-    Concrete(OpCode),
-    Pseudo(PseudoOpCode),
-}
-
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 use edit_distance::edit_distance;
 
 /// Finds the opcode with the mnemonic that has the shortest edit distance to the provided string.
 /// This is used to try and proved helpful suggestions for the user.
-fn find_closest_opcode(label: &str) -> &'static SymbolicOpCode {
+fn find_closest_opcode(label: &str) -> &'static OpCode {
     lazy_static! {
-        static ref MNEMONIC_MAP: HashMap<&'static str, SymbolicOpCode> = {
+        static ref MNEMONIC_MAP: HashMap<&'static str, OpCode> = {
             let mut map = HashMap::new();
 
-            map.insert("NOP", SymbolicOpCode::Concrete(OpCode::NoOperation));
-            map.insert("STORE", SymbolicOpCode::Concrete(OpCode::Store));
-            map.insert("LOAD", SymbolicOpCode::Concrete(OpCode::Load));
-            map.insert("IN", SymbolicOpCode::Concrete(OpCode::In));
-            map.insert("OUT", SymbolicOpCode::Concrete(OpCode::Out));
-            map.insert("ADD", SymbolicOpCode::Concrete(OpCode::Add));
-            map.insert("SUB", SymbolicOpCode::Concrete(OpCode::Subtract));
-            map.insert("MUL", SymbolicOpCode::Concrete(OpCode::Multiply));
-            map.insert("DIV", SymbolicOpCode::Concrete(OpCode::Divide));
-            map.insert("MOD", SymbolicOpCode::Concrete(OpCode::Modulo));
-            map.insert("AND", SymbolicOpCode::Concrete(OpCode::And));
-            map.insert("OR", SymbolicOpCode::Concrete(OpCode::Or));
-            map.insert("XOR", SymbolicOpCode::Concrete(OpCode::Xor));
-            map.insert("SHL", SymbolicOpCode::Concrete(OpCode::ShiftLeft));
-            map.insert("SHR", SymbolicOpCode::Concrete(OpCode::ShiftRight));
-            map.insert("NOT", SymbolicOpCode::Concrete(OpCode::Not));
-            map.insert("COMP", SymbolicOpCode::Concrete(OpCode::Compare));
-            map.insert("CALL", SymbolicOpCode::Concrete(OpCode::Call));
-            map.insert("EXIT", SymbolicOpCode::Concrete(OpCode::Exit));
-            map.insert("PUSH", SymbolicOpCode::Concrete(OpCode::Push));
-            map.insert("POP", SymbolicOpCode::Concrete(OpCode::Pop));
-            map.insert("PUSHR", SymbolicOpCode::Concrete(OpCode::PushRegisters));
-            map.insert("POPR", SymbolicOpCode::Concrete(OpCode::PopRegisters));
-            map.insert("SVC", SymbolicOpCode::Concrete(OpCode::SupervisorCall));
+            map.insert("NOP", OpCode::Real(RealOpCode::NoOperation));
+            map.insert("STORE", OpCode::Real(RealOpCode::Store));
+            map.insert("LOAD", OpCode::Real(RealOpCode::Load));
+            map.insert("IN", OpCode::Real(RealOpCode::In));
+            map.insert("OUT", OpCode::Real(RealOpCode::Out));
+            map.insert("ADD", OpCode::Real(RealOpCode::Add));
+            map.insert("SUB", OpCode::Real(RealOpCode::Subtract));
+            map.insert("MUL", OpCode::Real(RealOpCode::Multiply));
+            map.insert("DIV", OpCode::Real(RealOpCode::Divide));
+            map.insert("MOD", OpCode::Real(RealOpCode::Modulo));
+            map.insert("AND", OpCode::Real(RealOpCode::And));
+            map.insert("OR", OpCode::Real(RealOpCode::Or));
+            map.insert("XOR", OpCode::Real(RealOpCode::Xor));
+            map.insert("SHL", OpCode::Real(RealOpCode::ShiftLeft));
+            map.insert("SHR", OpCode::Real(RealOpCode::ShiftRight));
+            map.insert("NOT", OpCode::Real(RealOpCode::Not));
+            map.insert("COMP", OpCode::Real(RealOpCode::Compare));
+            map.insert("CALL", OpCode::Real(RealOpCode::Call));
+            map.insert("EXIT", OpCode::Real(RealOpCode::Exit));
+            map.insert("PUSH", OpCode::Real(RealOpCode::Push));
+            map.insert("POP", OpCode::Real(RealOpCode::Pop));
+            map.insert("PUSHR", OpCode::Real(RealOpCode::PushRegisters));
+            map.insert("POPR", OpCode::Real(RealOpCode::PopRegisters));
+            map.insert("SVC", OpCode::Real(RealOpCode::SupervisorCall));
             map.insert(
                 "JUMP",
-                SymbolicOpCode::Concrete(OpCode::Jump {
+                OpCode::Real(RealOpCode::Jump {
                     negated: false,
                     condition: JumpCondition::Unconditional,
                 }),
             );
             map.insert(
                 "JZER",
-                SymbolicOpCode::Concrete(OpCode::Jump {
+                OpCode::Real(RealOpCode::Jump {
                     negated: false,
                     condition: JumpCondition::Zero,
                 }),
             );
             map.insert(
                 "JNZER",
-                SymbolicOpCode::Concrete(OpCode::Jump {
+                OpCode::Real(RealOpCode::Jump {
                     negated: true,
                     condition: JumpCondition::Zero,
                 }),
             );
             map.insert(
                 "JPOS",
-                SymbolicOpCode::Concrete(OpCode::Jump {
+                OpCode::Real(RealOpCode::Jump {
                     negated: false,
                     condition: JumpCondition::Positive,
                 }),
             );
             map.insert(
                 "JNPOS",
-                SymbolicOpCode::Concrete(OpCode::Jump {
+                OpCode::Real(RealOpCode::Jump {
                     negated: true,
                     condition: JumpCondition::Positive,
                 }),
             );
             map.insert(
                 "JNEG",
-                SymbolicOpCode::Concrete(OpCode::Jump {
+                OpCode::Real(RealOpCode::Jump {
                     negated: false,
                     condition: JumpCondition::Negative,
                 }),
             );
             map.insert(
                 "JNNEG",
-                SymbolicOpCode::Concrete(OpCode::Jump {
+                OpCode::Real(RealOpCode::Jump {
                     negated: true,
                     condition: JumpCondition::Negative,
                 }),
             );
             map.insert(
                 "JEQU",
-                SymbolicOpCode::Concrete(OpCode::Jump {
+                OpCode::Real(RealOpCode::Jump {
                     negated: false,
                     condition: JumpCondition::Equal,
                 }),
             );
             map.insert(
                 "JNEQU",
-                SymbolicOpCode::Concrete(OpCode::Jump {
+                OpCode::Real(RealOpCode::Jump {
                     negated: true,
                     condition: JumpCondition::Equal,
                 }),
             );
             map.insert(
                 "JLES",
-                SymbolicOpCode::Concrete(OpCode::Jump {
+                OpCode::Real(RealOpCode::Jump {
                     negated: false,
                     condition: JumpCondition::Less,
                 }),
             );
             map.insert(
                 "JNLES",
-                SymbolicOpCode::Concrete(OpCode::Jump {
+                OpCode::Real(RealOpCode::Jump {
                     negated: true,
                     condition: JumpCondition::Less,
                 }),
             );
             map.insert(
                 "JGRE",
-                SymbolicOpCode::Concrete(OpCode::Jump {
+                OpCode::Real(RealOpCode::Jump {
                     negated: false,
                     condition: JumpCondition::Greater,
                 }),
             );
             map.insert(
                 "JNGRE",
-                SymbolicOpCode::Concrete(OpCode::Jump {
+                OpCode::Real(RealOpCode::Jump {
                     negated: true,
                     condition: JumpCondition::Greater,
                 }),
             );
 
-            map.insert("DC", SymbolicOpCode::Pseudo(PseudoOpCode::DC));
-            map.insert("DS", SymbolicOpCode::Pseudo(PseudoOpCode::DS));
-            map.insert("EQU", SymbolicOpCode::Pseudo(PseudoOpCode::EQU));
+            map.insert("DC", OpCode::Pseudo(PseudoOpCode::DC));
+            map.insert("DS", OpCode::Pseudo(PseudoOpCode::DS));
+            map.insert("EQU", OpCode::Pseudo(PseudoOpCode::EQU));
             
             map
         };
@@ -291,15 +289,16 @@ enum IterativeParsingResult<T,E> {
     Success(T),
 
     /// The parse operation encountered errors, but was able to recover from them.
-    Fixes(Vec<E>),
+    Fixes(T, Vec<E>),
 
     /// The parse operation encountered an error from which it could not recover.
     Error(E),
 }
 
 impl<'t> Parser<'t, SymbolTable> {
-    pub fn parse_instruction(input: &'t str) -> Result<SymbolicInstruction> {
-        Parser::<SymbolTable>::from_str(input).apply(Parser::take_instruction)
+    pub fn parse_instruction(input: &'t str) -> Result<Instruction> {
+        Parser::<SymbolTable>::from_str(input)
+            .apply(Parser::take_instruction)
     }
 }
 
@@ -309,7 +308,7 @@ where
 {
     /// Parse a single line of assembly.
     pub fn parse_line(&mut self)
-        -> Result<(Option<SymbolId>, SymbolicInstruction)>
+        -> Result<(Option<SymbolId>, Instruction)>
     {
         let label = self.apply(Self::take_symbol).ok();
 
@@ -320,7 +319,7 @@ where
 
     /// Tries to parse a program written in symbolic TTK91 assembly. Fails on the first
     /// encountered error and returns it.
-    fn parse(&mut self) -> Result<Vec<Instruction>> {
+    pub fn parse(&mut self) -> Result<Program> {
         self.stream.reset();
         let res = self.apply(Self::take_program);
 
@@ -330,16 +329,16 @@ where
     /// Like [Parser::parse], tries to parse a program written in symbolic TTK91 assembly.
     /// Unlike [Parser::parse], this function tries it's best to recover from any syntax errors in
     /// order to provide suggestions on how to fix these errors and continue parsing further.
-    pub fn parse_verbose(&mut self) -> std::result::Result<Vec<Instruction>, Vec<ParseError>> {
+    pub fn parse_verbose(&mut self) -> std::result::Result<Program, (Option<Program>, Vec<ParseError>)> {
         match self._parse_verbose(None) {
             IterativeParsingResult::Success(program) => Ok(program),
-            IterativeParsingResult::Error(error) => Err(vec![error]),
-            IterativeParsingResult::Fixes(errors) => Err(errors),
+            IterativeParsingResult::Error(error) => Err((None, vec![error])),
+            IterativeParsingResult::Fixes(result, errors) => Err((Some(result), errors)),
         }
     }
 
     fn _parse_verbose(&mut self, previous_error: Option<ParseError>)
-        -> IterativeParsingResult<Vec<Instruction>, ParseError>
+        -> IterativeParsingResult<Program, ParseError>
     {
         let logger = self.logger.clone();
 
@@ -389,8 +388,8 @@ where
 
             if let Token::Symbol(label) = token {
                 let replacement = match find_closest_opcode(label) {
-                    SymbolicOpCode::Concrete(op) => Token::Operator(op.clone()),
-                    SymbolicOpCode::Pseudo(op) => Token::PseudoOperator(op.clone()),
+                    OpCode::Real(op) => Token::RealOperator(op.clone()),
+                    OpCode::Pseudo(op) => Token::PseudoOperator(op.clone()),
                 };
 
                 let original = std::mem::replace(token, replacement.clone());
@@ -407,12 +406,12 @@ where
                 self.stream.buffer_mut()[i].0 = original;
 
                 let errors = match res {
-                    IterativeParsingResult::Success(_program) => Some(Vec::new()),
+                    IterativeParsingResult::Success(program) => Some((program, Vec::new())),
                     IterativeParsingResult::Error(_) => None,
-                    IterativeParsingResult::Fixes(fixes) => Some(fixes),
+                    IterativeParsingResult::Fixes(result, fixes) => Some((result, fixes)),
                 };
 
-                if let Some(mut errors) = errors {
+                if let Some((program, mut errors)) = errors {
                     let mut error = error.clone();
 
                     error.context.push(Context::Suggestion {
@@ -422,7 +421,7 @@ where
 
                     errors.push(error);
 
-                    fixes.push((1, errors));
+                    fixes.push((1, program, errors));
                     break;
                 }
             }
@@ -438,12 +437,12 @@ where
             self.stream.buffer_mut().insert(i, token);
 
             let errors = match res {
-                IterativeParsingResult::Success(_program) => Some(Vec::new()),
+                IterativeParsingResult::Success(program) => Some((program, Vec::new())),
                 IterativeParsingResult::Error(_) => None,
-                IterativeParsingResult::Fixes(fixes) => Some(fixes),
+                IterativeParsingResult::Fixes(result, fixes) => Some((result, fixes)),
             };
 
-            if let Some(mut errors) = errors {
+            if let Some((result, mut errors)) = errors {
                 let mut error = error.clone();
 
                 error.context.push(Context::Suggestion {
@@ -453,15 +452,15 @@ where
 
                 errors.push(error);
 
-                fixes.push((2, errors));
+                fixes.push((2, result, errors));
             }
         }
 
         fixes.sort_by_key(|f| f.0);
 
         if !fixes.is_empty() {
-            let (_, fixes) = fixes.remove(0);
-            IterativeParsingResult::Fixes(fixes)
+            let (_, program, fixes) = fixes.remove(0);
+            IterativeParsingResult::Fixes(program, fixes)
         } else {
             IterativeParsingResult::Error(ParseError::eos("unexpected end of stream"))
         }
@@ -479,11 +478,11 @@ where
 
     /// Tries to parse a "concrete" opcode, meaning an opcode that directly corresponds to an
     /// instruction on the instruction set.
-    fn take_concrete_opcode(&mut self) -> Result<OpCode> {
+    fn take_real_opcode(&mut self) -> Result<RealOpCode> {
         match self.stream_mut().next() {
-            Some((Token::Operator(op), _)) => Ok(op),
-            Some((_, span)) => Err(ParseError::new(span, "expected a concrete opcode")),
-            None => Err(ParseError::eos("expected a concrete opcode")),
+            Some((Token::RealOperator(op), _)) => Ok(op),
+            Some((_, span)) => Err(ParseError::new(span, "expected a real opcode")),
+            None => Err(ParseError::eos("expected a real opcode")),
         }
     }
 
@@ -584,180 +583,106 @@ where
     /// The operand consist of an optional addressing mode specifier, a base operand and an
     /// optional index register. The base operand can be either a symbol, a register or a value and
     /// is the only required component of the operand.
-    fn take_second_operand(&mut self) -> Result<SecondOperand> {
-        // Take an optional adressing modifier.  Default to direct addressing mode.
-        // FIXME: This decision sould not be made by the parser and the AST should express the
-        // abence of explicit addressing mode specifier.
-        let mode = self.apply(Self::take_modifier)
-            .ok()
-            .unwrap_or(Mode::Direct);
+    fn take_operand(&mut self) -> Result<Operand> {
+        let start = self.boundary_right();
+
+        // Take an optional adressing modifier.
+        let mode = self.apply(Self::take_modifier).ok();
 
         // The operand base. A register, a symbol or a literal.
-        let value = self.apply(Self::take_value)?;
+        let base = self.apply(Self::take_value)?;
 
         // Take the index register if present. Otherwise returns None.
         let index = self.apply(Self::take_index_register)?;
 
-        Ok(SecondOperand {
+        let end = self.boundary_left();
+
+        Ok(Operand {
             mode,
-            value,
+            base,
             index,
+            span: start..end,
         })
     }
 
-    fn take_concrete_instruction(&mut self) -> Result<ConcreteInstruction> {
-        let opcode = self.apply(Self::take_concrete_opcode)?;
-
-        // The NOP opcode takes no arguments.
-        if opcode == OpCode::NoOperation {
-            return Ok(ConcreteInstruction {
-                label: None,
-                opcode,
-                operand1: Register::R0,
-                operand2: SecondOperand {
-                    mode: Mode::Immediate,
-                    value: Value::Immediate(0),
-                    index: None,
-                },
-            });
-        }
-
-        // The jump instructions that examine the state register take only the second operand.
-        if let OpCode::Jump { condition: JumpCondition::Unconditional, .. } = opcode {
-            let operand2 = self.apply(Self::take_second_operand)?;
-
-            return Ok(ConcreteInstruction {
-                label: None,
-                opcode,
-                operand1: Register::R0,
-                operand2,
-            });
-        }
-
-        let operand1 = self.apply(Self::take_register)?;
-
-        // The PUSHR, POPR and NOT instructions take only the first operand.
-        if let OpCode::PushRegisters | OpCode::PopRegisters | OpCode::Not = opcode {
-            return Ok(ConcreteInstruction {
-                label: None,
-                opcode,
-                operand1,
-                operand2: SecondOperand {
-                    mode: Mode::Immediate,
-                    value: Value::Immediate(0),
-                    index: None,
-                },
-            });
-        }
-
-        // The ParameterSeparator token (a comma) has no syntactial purpose but is required.
-        self.assert_token(Token::ParameterSeparator)
-            .context("expected a comma")?;
-
-        let operand2 = self.apply(Self::take_second_operand)
-            .context("invalid second operand")?;
-
-        Ok(ConcreteInstruction {
-            label: None,
-            opcode,
-            operand1,
-            operand2,
-        })
-    }
-
-    /// Tries to parse an "pseudo" instruction, that is, an instruction meant for the preprocessor.
-    fn take_pseudo_instruction(&mut self) -> Result<PseudoInstruction> {
-        let opcode = self.apply(Self::take_pseudo_opcode)?;
-        let operand = self.apply(Self::take_literal)?;
-
-        match opcode {
-            PseudoOpCode::DC | PseudoOpCode::EQU => Ok(PseudoInstruction {
-                value: operand,
-                size: 1,
-            }),
-            PseudoOpCode::DS => Ok(PseudoInstruction {
-                value: 0,
-                size: operand as u16,
-            }),
+    pub fn take_opcode(&mut self) -> Result<OpCode> {
+        match self.stream_mut().next() {
+            Some((Token::RealOperator(op), _span)) => Ok(OpCode::Real(op)),
+            Some((Token::PseudoOperator(op), _span)) => Ok(OpCode::Pseudo(op)),
+            Some((_, span)) => Err(ParseError::new(span, "expected an opcode")),
+            None => Err(ParseError::eos("expected an opcode")),
         }
     }
 
     /// Tries to parse an instruction, which can be either pseudo or concrete.
-    pub fn take_instruction(&mut self) -> Result<SymbolicInstruction> {
-        let p = either(Self::take_concrete_instruction, Self::take_pseudo_instruction);
+    pub fn take_instruction(&mut self) -> Result<Instruction> {
+        let start = self.boundary_right();
 
-        match self.apply(p)? {
-            Either::Left(ins) => Ok(SymbolicInstruction::Concrete(ins)),
-            Either::Right(ins) => Ok(SymbolicInstruction::Pseudo(ins)),
-        }
-    }
+        let opcode = self.apply(Self::take_opcode)?;
 
-    /// Tries to parse a whole symbolic program.
-    fn take_program(&mut self) -> Result<Vec<Instruction>> {
-        let mut program = Vec::new();
+        let mut operands = Vec::new();
 
-        'outer: loop {
-            let mut labels = Vec::new();
-
-            // Take any number of labels.
-            loop {
-                match self.apply(Self::take_symbol) {
-                    Ok(sym) => labels.push(sym),
-                    Err(ParseError { kind: ErrorKind::EndOfStream, .. }) => break 'outer,
-                    Err(_) => break,
+        let mut first = true;
+        loop {
+            if !first {
+                if !self.assert_token::<()>(Token::ParameterSeparator).is_ok() {
+                    break;
                 }
             }
 
-            // Get the starting position of the current instruction.
-            let start = self.boundary_right();
+            operands.push(self.apply(Self::take_operand)?);
 
-            let instruction = self.apply(Self::take_instruction)?;
-
-            // Get the ending position of the current instruction.
-            let end = self.boundary_left();
-
-            let span = match (start, end) {
-                (Some(start), Some(end)) => Some(start .. end),
-                _ => None,
-            };
-
-            program.push(Instruction {
-                labels,
-                instruction,
-                span,
-            });
+            first = false;
         }
 
-        Ok(program)
+        let end = self.boundary_left();
+
+        Ok(Instruction {
+            opcode,
+            operands,
+            span: start..end,
+        })
+    }
+
+    fn take_part(&mut self) -> Result<Option<Part>> {
+        let mut labels = Vec::new();
+
+        // Take any number of labels.
+        loop {
+            match self.apply(Self::take_symbol) {
+                Ok(sym) => labels.push(sym),
+                Err(ParseError { kind: ErrorKind::EndOfStream, .. }) => return Ok(None),
+                Err(_) => break,
+            }
+        }
+
+        let instruction = self.apply(Self::take_instruction)?;
+
+        Ok(Some(Part {
+            labels,
+            instruction,
+        }))
+    }
+
+    /// Tries to parse a whole symbolic program.
+    fn take_program(&mut self) -> Result<Program> {
+        let take_part = || self.apply(Self::take_part).transpose();
+
+        std::iter::from_fn(take_part)
+            .collect::<Result<_>>()
+            .map(|parts| Program { parts })
     }
 }
 
 /// Parse a single line of assembly.
 pub fn parse_line(input: &str)
-    -> Result<(Option<String>, SymbolicInstruction)>
+    -> Result<Part>
 {
-    let mut parser = Parser::from_str(input);
-
-    let label = parser.apply(Parser::take_symbol)
-        .ok()
-        .and_then(|id| parser.state.symbol_table.get_symbol(id).get::<Label>().into_owned());
-
-    let instruction = parser.apply(Parser::take_instruction)?;
-
-    Ok((label, instruction))
-}
-
-/// Parse an entier assembly program.
-///
-/// You propably want to use this via [Program::parse](crate::symbolic::Program::parse).
-pub fn parse_symbolic_file(input: &str) -> Result<Program> {
-    let mut parser = Parser::from_str(input);
-    let instructions = parser.apply(Parser::take_program)?;
-
-    Ok(Program {
-        symbol_table: parser.state.symbol_table,
-        instructions,
-    })
+    Parser::from_str(input)
+        .apply(Parser::take_part)
+        .transpose()
+        .ok_or(ParseError::eos("expected an instruction"))
+        .and_then(|res| res) // Collapse the nested Results
 }
 
 #[cfg(test)]
@@ -817,36 +742,26 @@ mod tests {
         let input = r#"
     ; sum - laske annettuja lukuja yhteen kunnes nolla annettu
 
-    Luku  DC    0           ; nykyinen luku
-    Summa DC    0           ; nykyinen summa
+    Luku  DC    0            ; nykyinen luku
+    Summa DC    R0           ; nykyinen summa
 
-    Sum   IN    R1, =KBD	; ohjelma alkaa käskystä 0
-          STORE R1, Luku
-          JZER  R1, Done    ; luvut loppu?
+    Sum   IN    R1, =KBD	 ; ohjelma alkaa käskystä 0
+          STORE Luku
+          JZER  R1(R2), Done ; luvut loppu?
         
-          LOAD  R1, Summa   ; Summa <- Summa+Luku
-          ADDe   R1, Luku	
-          STORE R1, Summa   ; summa muuttujassa, ei rekisterissa?
+          LOAD  R1, Summa    ; Summa <- Summa+Luku
+          ADDe  R1, Luku	
+          STORE R1, Summa    ; summa muuttujassa, ei rekisterissa?
 
-          JUMP  Sum
+          JUMP  Sum, R0
 
-    Done  LOAD  R1, Summa   ; tulosta summa ja lopeta
-          OUpr   R1, ==CRT
+    Done  LOAD  R1, Summa    ; tulosta summa ja lopeta
+          OUpr  R1, ==CRT
 
           SVC   SP, =HALT
         "#;
 
-        let mut parser = Parser::from_str(input);
-
-        use slog::Drain;
-        let decorator = slog_term::TermDecorator::new().build();
-        let drain = slog_term::FullFormat::new(decorator).build().fuse();
-        let drain = slog_async::Async::new(drain)
-            .overflow_strategy(slog_async::OverflowStrategy::Block)
-            .build().fuse();
-        parser.set_logger(&Logger::root(drain, o!()));
-
-        let result = parser.parse_verbose();
+        let result = crate::symbolic::program::Program::parse_verbose(input);
 
         println!("{:?}", result);
 
