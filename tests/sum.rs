@@ -30,15 +30,15 @@ fn test_sum_read_program() {
     assert_eq!(p.data.start, 10);
     assert_eq!(p.data.content, vec![ 0, 0 ]);
 
-    use ttk91::symbol_table::Address;
+    use ttk91::symbol_table::Value;
 
-    assert_eq!(p.symbol_table.get_symbol_by_label("kbd").unwrap().get::<Address>().as_ref(), &Some(1u16));
-    assert_eq!(p.symbol_table.get_symbol_by_label("crt").unwrap().get::<Address>().as_ref(), &Some(0u16));
-    assert_eq!(p.symbol_table.get_symbol_by_label("summa").unwrap().get::<Address>().as_ref(), &Some(11u16));
-    assert_eq!(p.symbol_table.get_symbol_by_label("done").unwrap().get::<Address>().as_ref(), &Some(7u16));
-    assert_eq!(p.symbol_table.get_symbol_by_label("sum").unwrap().get::<Address>().as_ref(), &Some(0u16));
-    assert_eq!(p.symbol_table.get_symbol_by_label("luku").unwrap().get::<Address>().as_ref(), &Some(10u16));
-    assert_eq!(p.symbol_table.get_symbol_by_label("halt").unwrap().get::<Address>().as_ref(), &Some(11u16));
+    assert_eq!(p.symbol_table.get_symbol_by_label("kbd").unwrap().get::<Value>().as_ref(), &Some(1i32));
+    assert_eq!(p.symbol_table.get_symbol_by_label("crt").unwrap().get::<Value>().as_ref(), &Some(0i32));
+    assert_eq!(p.symbol_table.get_symbol_by_label("summa").unwrap().get::<Value>().as_ref(), &Some(11i32));
+    assert_eq!(p.symbol_table.get_symbol_by_label("done").unwrap().get::<Value>().as_ref(), &Some(7i32));
+    assert_eq!(p.symbol_table.get_symbol_by_label("sum").unwrap().get::<Value>().as_ref(), &Some(0i32));
+    assert_eq!(p.symbol_table.get_symbol_by_label("luku").unwrap().get::<Value>().as_ref(), &Some(10i32));
+    assert_eq!(p.symbol_table.get_symbol_by_label("halt").unwrap().get::<Value>().as_ref(), &Some(11i32));
 }
 
 #[test]

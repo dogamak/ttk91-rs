@@ -54,7 +54,6 @@ impl_field_type!(Defined, Option<Span>);
 impl_field_type!(Value, Option<i32>);
 impl_field_type!(References, Vec<Span>);
 impl_field_type!(Label, Option<String>);
-impl_field_type!(Address, Option<u16>);
 
 impl SymbolTableField for SymbolId {
     const NAME: &'static str = "SymbolId";

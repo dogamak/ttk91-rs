@@ -955,9 +955,9 @@ mod tests {
         ($emulator:expr, $program:expr, $symbol:expr, $value:expr) => {
             let addr = $program.symbol_table.get_symbol_by_label_mut($symbol)
                 .expect("no such symbol")
-                .get::<$crate::symbol_table::Address>()
+                .get::<$crate::symbol_table::Value>()
                 .expect("symbol to have an address");
-            let value = $emulator.memory.get_data(addr)
+            let value = $emulator.memory.get_data(addr as u16)
                 .expect("symbol points to invalid memory");
             assert_eq!(value, $value, "Symbol '{}' at {} != {}", $symbol, addr, $value);
         };

@@ -2,7 +2,7 @@
 
 use crate::symbolic;
 use crate::symbolic::program::SymbolicInstruction;
-use crate::symbol_table::{SymbolId, SymbolInfo, SymbolTable, Label, Location, Address};
+use crate::symbol_table::{SymbolId, SymbolInfo, SymbolTable, Label, Location, Value};
 
 use crate::bytecode::{Segment, Program};
 use crate::instruction::Instruction;
@@ -78,12 +78,12 @@ pub trait CompileTarget: Sized {
 impl Program {
     fn move_symbols_after(&mut self, addr: u16) {
         for symbol in self.symbol_table.iter_mut() {
-            let value = match symbol.get_mut::<Address>() {
+            let value = match symbol.get_mut::<Value>() {
                 Some(v) => v,
                 None => continue,
             };
 
-            if *value >= addr {
+            if *value >= addr as i32 {
                 *value += 1;
             }
         }
@@ -153,7 +153,7 @@ impl CompileTarget for Program {
             sym.get::<SymbolId>(),
             addr);
 
-        sym.set::<Address>(Some(addr as u16));
+        sym.set::<Value>(Some(addr as i32));
     }
 
     fn get_symbol_mut(&mut self, label: SymbolId) -> &mut SymbolInfo {

@@ -25,13 +25,13 @@ fn test_hello_read_program() {
     assert_eq!(p.data.start, 4);
     assert_eq!(p.data.content, vec![ 13, 15 ]);
 
-    use ttk91::symbol_table::Address;
+    use ttk91::symbol_table::Value;
 
-    assert_eq!(p.symbol_table.get_symbol_by_label("halt").unwrap().get::<Address>().as_ref(), &Some(11u16));
-    assert_eq!(p.symbol_table.get_symbol_by_label("crt").unwrap().get::<Address>().as_ref(), &Some(0u16));
-    assert_eq!(p.symbol_table.get_symbol_by_label("x").unwrap().get::<Address>().as_ref(), &Some(4u16));
-    assert_eq!(p.symbol_table.get_symbol_by_label("y").unwrap().get::<Address>().as_ref(), &Some(5u16));
-    assert_eq!(p.symbol_table.get_symbol_by_label("main").unwrap().get::<Address>().as_ref(), &Some(0u16));
+    assert_eq!(p.symbol_table.get_symbol_by_label("halt").unwrap().get::<Value>().as_ref(), &Some(11i32));
+    assert_eq!(p.symbol_table.get_symbol_by_label("crt").unwrap().get::<Value>().as_ref(), &Some(0i32));
+    assert_eq!(p.symbol_table.get_symbol_by_label("x").unwrap().get::<Value>().as_ref(), &Some(4i32));
+    assert_eq!(p.symbol_table.get_symbol_by_label("y").unwrap().get::<Value>().as_ref(), &Some(5i32));
+    assert_eq!(p.symbol_table.get_symbol_by_label("main").unwrap().get::<Value>().as_ref(), &Some(0i32));
 }
 
 fn compile_program() -> Program {

@@ -15,7 +15,7 @@ use super::token::{
     Section,
 };
 
-use crate::symbol_table::{SymbolTable, Address, Label};
+use crate::symbol_table::{SymbolTable, Value, Label};
 use super::program::{Segment, Program};
 
 #[derive(Debug)]
@@ -157,7 +157,7 @@ impl<'t> Parser<'t> {
 
             let id = table.get_or_create(label.to_string());
             let sym = table.get_symbol_mut(id);
-            sym.set::<Address>(Some(address as u16));
+            sym.set::<Value>(Some(address));
             sym.set::<Label>(Some(label.to_string()));
         }
 

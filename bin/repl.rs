@@ -15,7 +15,7 @@ use ttk91::{
     instruction::{Instruction, Register},
     symbol_table::{
         Label,
-        Address,
+        Value,
         SymbolId,
         SymbolTable,
     },
@@ -279,12 +279,12 @@ impl REPL {
 
         let crt = symbol_table.get_or_create("CRT".into());
         let crt = symbol_table.get_symbol_mut(crt);
-        crt.set::<Address>(Some(0));
+        crt.set::<Value>(Some(0));
         crt.set::<Label>(Some("CRT".into()));
 
         let crt = symbol_table.get_or_create("HALT".into());
         let crt = symbol_table.get_symbol_mut(crt);
-        crt.set::<Address>(Some(11));
+        crt.set::<Value>(Some(11));
         crt.set::<Label>(Some("HALT".into()));
 
         let mut emulator = Emulator::new(memory.clone(), StdIo)?;
@@ -328,19 +328,19 @@ impl REPL {
             },
             ("s", [symbol]) | ("symbol", [symbol]) => {
                 let addr = self.symbol_table.get_symbol_by_label(symbol)
-                    .and_then(|sym| sym.get::<Address>().into_owned())
+                    .and_then(|sym| sym.get::<Value>().into_owned())
                     .ok_or(Error::UnknownSymbol(symbol.to_string()))?;
 
-                let value = self.memory.get_data(addr)?;
+                let value = self.memory.get_data(addr as u16)?;
 
                 println!("Symbol '{}' @ {:x} = {}", symbol, addr, value);
             },
             ("symbols", _) => {
                 for symbol in self.symbol_table.iter() {
-                    let addr = symbol.get::<Address>().into_owned().unwrap_or(0);
+                    let addr = symbol.get::<Value>().into_owned().unwrap_or(0);
                     let label = symbol.get::<Label>().into_owned().unwrap_or("<UNKNOWN>".to_string());
 
-                    let value = match self.memory.get_data(addr) {
+                    let value = match self.memory.get_data(addr as u16) {
                         Ok(value) => value.to_string(),
                         Err(_) => "#ERROR#".to_string(),
                     };
@@ -380,16 +380,16 @@ impl REPL {
                             None => {},
                             Some(entry) => {
                                 let addr = self.symbol_table.get_symbol(entry.symbol)
-                                    .get::<Address>()
+                                    .get::<Value>()
                                     .into_owned();
 
                                 if let Some(addr) = addr {
                                     let imm = match entry.kind {
                                         RelocationKind::Address => addr,
-                                        RelocationKind::Value => self.memory.get_data(addr)? as u16,
+                                        RelocationKind::Value => self.memory.get_data(addr as u16)?,
                                     };
 
-                                    ins.immediate = imm;
+                                    ins.immediate = imm as u16;
                                 } else {
                                     println!("NOTE: Unknown symbol");
                                 }
@@ -446,7 +446,7 @@ impl REPL {
 
                 if let Some(symbol) = label {
                     let symbol =self.symbol_table.get_symbol_mut(symbol);
-                    symbol.set::<Address>(Some(addr));
+                    symbol.set::<Value>(Some(addr as i32));
                     let label = symbol.get::<Label>().into_owned().unwrap_or("UNKNOWN".into());
                     println!("Symbol {} at address {}", label, addr);
                 }
@@ -458,12 +458,12 @@ impl REPL {
                     None => {},
                     Some(entry) => {
                         let addr = self.symbol_table.get_symbol(entry.symbol)
-                            .get::<Address>()
+                            .get::<Value>()
                             .expect("expected a symbol to have an address");
 
                         let imm = match entry.kind {
-                            RelocationKind::Address => addr,
-                            RelocationKind::Value => self.memory.get_data(addr)? as u16,
+                            RelocationKind::Address => addr as u16,
+                            RelocationKind::Value => self.memory.get_data(addr as u16)? as u16,
                         };
 
                         ins.immediate = imm;
@@ -474,7 +474,7 @@ impl REPL {
 
                 if let Some(symbol) = label {
                     let symbol =self.symbol_table.get_symbol_mut(symbol);
-                    symbol.set::<Address>(Some(addr));
+                    symbol.set::<Value>(Some(addr as i32));
                     let label = symbol.get::<Label>().into_owned().unwrap_or("UNKNOWN".into());
                     println!("Symbol {} at address {}", label, addr);
                 }
