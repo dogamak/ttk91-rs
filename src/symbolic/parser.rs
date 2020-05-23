@@ -5,6 +5,8 @@
 
 use slog::{Logger, Discard, trace, o};
 
+use std::fmt;
+
 use logos::Logos;
 
 use super::ast::{
@@ -14,24 +16,22 @@ use super::ast::{
     Mode,
     OpCode,
     Program,
-    PseudoInstruction,
     PseudoOpCode,
     RealOpCode,
     Register,
     Operand,
-    SymbolicInstruction,
     Value,
 };
 
+use crate::error::ResultExt;
+
 use crate::parsing::{
-    assert_token,
     BufferedStream,
     either,
+    ErrorKind as ParseErrorKind,
+    Context,
     Either,
-    ErrorExt,
-    ErrorKind,
     Parser as ParserTrait,
-    SeekStream,
     Span,
     take_token,
 };
@@ -40,49 +40,32 @@ use crate::symbol_table::{SymbolTable, SymbolId, References, Label};
 
 use super::token::Token;
 
-use crate::symbolic::program::{SymbolicInstruction as ValidInstruction, SecondOperand, RealInstruction};
-
-pub type ParseError = crate::parsing::Error<Context>;
-
-/// Provides context for a parsing error. Multiple [Context] instances can be associated with a
-/// single [ParseError].
 #[derive(Debug, Clone)]
-pub enum Context {
-    /// This variant provides an suggestion for the user on how to recover from a parsing error.
-    /// Alternatively, this can be used to show linter-like warnings to the user when the parser or
-    /// the compiler is reasonably sure that the user might have wanted to do something else.
-    Suggestion {
+pub enum ErrorKind {
+    OperandCount {
         span: Span,
-        message: String,
+        expected: usize,
+        got: usize,
     },
-
-    /// This variant procides context directly relating to the error itself.
-    Error {
-        message: String,
+    InvalidOperand {
+        span: Span,
+        index: usize,
     },
-
-    /// This variant is used to indicate that the parsing operation itsel was successfull, but
-    /// there are tokens left in the input stream.
-    TrailingInput,
 }
 
-impl From<&str> for Context {
-    fn from(s: &str) -> Context {
-        Context::Error {
-            message: s.to_string(),
+impl fmt::Display for ErrorKind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ErrorKind::OperandCount { expected, got, .. } =>
+                write!(f, "expected {} operands but got {}", expected, got), 
+            ErrorKind::InvalidOperand { index, .. } =>
+                write!(f, "operand #{} is invalid", index),
         }
     }
 }
 
-impl From<String> for Context {
-    fn from(s: String) -> Context {
-        Context::Error {
-            message: s,
-        }
-    }
-}
-
-type Result<T> = std::result::Result<T, ParseError>;
+pub type ParseError<'t> = crate::parsing::ParseError<ErrorKind, Token<'t>>;
+pub type Result<'t, T> = std::result::Result<T, ParseError<'t>>;
 
 impl<'a, T> ParserTrait<Token<'a>> for Parser<'a, T> {
     type Stream = BufferedStream<logos::SpannedIter<'a, Token<'a>>>;
@@ -308,7 +291,7 @@ where
 {
     /// Parse a single line of assembly.
     pub fn parse_line(&mut self)
-        -> Result<(Option<SymbolId>, Instruction)>
+        -> Result<'t, (Option<SymbolId>, Instruction)>
     {
         let label = self.apply(Self::take_symbol).ok();
 
@@ -319,7 +302,7 @@ where
 
     /// Tries to parse a program written in symbolic TTK91 assembly. Fails on the first
     /// encountered error and returns it.
-    pub fn parse(&mut self) -> Result<Program> {
+    pub fn parse(&mut self) -> Result<'t, Program> {
         self.stream.reset();
         let res = self.apply(Self::take_program);
 
@@ -329,7 +312,7 @@ where
     /// Like [Parser::parse], tries to parse a program written in symbolic TTK91 assembly.
     /// Unlike [Parser::parse], this function tries it's best to recover from any syntax errors in
     /// order to provide suggestions on how to fix these errors and continue parsing further.
-    pub fn parse_verbose(&mut self) -> std::result::Result<Program, (Option<Program>, Vec<ParseError>)> {
+    pub fn parse_verbose(&mut self) -> std::result::Result<Program, (Option<Program>, Vec<ParseError<'t>>)> {
         match self._parse_verbose(None) {
             IterativeParsingResult::Success(program) => Ok(program),
             IterativeParsingResult::Error(error) => Err((None, vec![error])),
@@ -338,7 +321,7 @@ where
     }
 
     fn _parse_verbose(&mut self, previous_error: Option<ParseError>)
-        -> IterativeParsingResult<Program, ParseError>
+        -> IterativeParsingResult<Program, ParseError<'t>>
     {
         let logger = self.logger.clone();
 
@@ -346,8 +329,7 @@ where
             Ok(program) => {
                 if let Some((_, span)) = self.stream_mut().next() {
                     trace!(logger, "Trailing Input");
-                    let ctx = Context::TrailingInput;
-                    return IterativeParsingResult::Error(ParseError::new(span.clone(), ctx));
+                    return IterativeParsingResult::Error(ParseError::new(ParseErrorKind::TrailingInput));
                 } else {
                     return IterativeParsingResult::Success(program);
                 }
@@ -380,7 +362,7 @@ where
             let (ref mut token, ref span) = self.stream.buffer_mut()[i];
             let span = span.clone();
 
-            if let ErrorKind::UnexpectedToken { span: ref error_span } = error.kind {
+            if let ParseErrorKind::UnexpectedToken { span: ref error_span, .. } = error.kind {
                 if span.start > error_span.start {
                     continue;
                 }
@@ -462,36 +444,36 @@ where
             let (_, program, fixes) = fixes.remove(0);
             IterativeParsingResult::Fixes(program, fixes)
         } else {
-            IterativeParsingResult::Error(ParseError::eos("unexpected end of stream"))
+            IterativeParsingResult::Error(ParseError::end_of_stream())
         }
     }
 
     /// Tries to parse a "pseudo" opcode, meaning an opcode that has no directly corresponding
     /// instruction and is meant for preprocessing or other stages of the compilation.
-    fn take_pseudo_opcode(&mut self) -> Result<PseudoOpCode> {
+    fn take_pseudo_opcode(&mut self) -> Result<'t, PseudoOpCode> {
         match self.stream_mut().next() {
             Some((Token::PseudoOperator(op), _)) => Ok(op),
-            Some((_, span)) => Err(ParseError::new(span, "expected a pseudo opcode")),
-            None => Err(ParseError::eos("expected a pseudo opcode")),
+            Some((got, span)) => Err(ParseError::unexpected(span, got, "expected a pseudo opcode".into())),
+            None => Err(ParseError::end_of_stream().context("expected a pseudo opcode")),
         }
     }
 
     /// Tries to parse a "concrete" opcode, meaning an opcode that directly corresponds to an
     /// instruction on the instruction set.
-    fn take_real_opcode(&mut self) -> Result<RealOpCode> {
+    fn take_real_opcode(&mut self) -> Result<'t, RealOpCode> {
         match self.stream_mut().next() {
             Some((Token::RealOperator(op), _)) => Ok(op),
-            Some((_, span)) => Err(ParseError::new(span, "expected a real opcode")),
-            None => Err(ParseError::eos("expected a real opcode")),
+            Some((got, span)) => Err(ParseError::unexpected(span, got, "expected a real opcode".into())),
+            None => Err(ParseError::end_of_stream().context("expected a real opcode")),
         }
     }
 
     /// Tries to parse an register (R1-R9, SP or FP).
-    fn take_register(&mut self) -> Result<Register> {
+    fn take_register(&mut self) -> Result<'t, Register> {
         match self.stream_mut().next() {
             Some((Token::Register(reg), _)) => Ok(reg),
-            Some((_, span)) => Err(ParseError::new(span, "expected a register")),
-            None => Err(ParseError::eos("expected a register")),
+            Some((got, span)) => Err(ParseError::unexpected(span, got, "a register".into())),
+            None => Err(ParseError::end_of_stream().context("expected a register")),
         }
     }
 
@@ -500,7 +482,7 @@ where
     ///
     /// Any additional symbol metadata (including it's label) can be accessed via the
     /// [SymbolTable].
-    fn take_symbol(&mut self) -> Result<SymbolId> {
+    fn take_symbol(&mut self) -> Result<'t, SymbolId> {
         match self.stream_mut().next() {
             Some((Token::Symbol(label), span)) => {
                 let id = self.state
@@ -518,22 +500,22 @@ where
 
                 Ok(id)
             },
-            Some((_, span)) => Err(ParseError::new(span, "expected a symbol")),
-            None => Err(ParseError::eos("expected a symbol")),
+            Some((got, span)) => Err(ParseError::unexpected(span, got, "a symbol".into())),
+            None => Err(ParseError::end_of_stream().context("expected a symbol")),
         }
     }
 
     /// Tries to parse an integer literal.
-    fn take_literal(&mut self) -> Result<i32> {
+    fn take_literal(&mut self) -> Result<'t, i32> {
         match self.stream_mut().next() {
             Some((Token::Literal(num), _)) => Ok(num),
-            Some((_, span)) => Err(ParseError::new(span, "expected a literal")),
-            None => Err(ParseError::eos("expected a literal")),
+            Some((got, span)) => Err(ParseError::unexpected(span, got, "a literal".into())),
+            None => Err(ParseError::end_of_stream().context("expected a literal")),
         }
     }
 
     /// Tries to parse an addressing mode specifier (either `@` or `=`).
-    fn take_modifier(&mut self) -> Result<Mode> {
+    fn take_modifier(&mut self) -> Result<'t, Mode> {
         let res = self.apply(either(
             take_token(Token::ImmediateModifier),
             take_token(Token::IndirectModifier),
@@ -549,7 +531,7 @@ where
     ///
     /// Take note that the [Value::Symbol] variant contains a [SymbolId], and not the symbol label.
     /// The symbol label and other information can be fetched and/or modified via the [SymbolTable].
-    fn take_value(&mut self) -> Result<Value> {
+    fn take_value(&mut self) -> Result<'t, Value> {
         let p = either(Self::take_symbol, Self::take_register);
         let p = either(Self::take_literal, p);
 
@@ -567,7 +549,7 @@ where
     /// Note that this function returns an [Option] and so succeeds even if no index register
     /// construct is present. However, if there is an opening parenthesis, but the rest of the
     /// constuct is malformed, this function returns an error.
-    fn take_index_register(&mut self) -> Result<Option<Register>> {
+    fn take_index_register(&mut self) -> Result<'t, Option<Register>> {
         if self.assert_token::<()>(Token::IndexBegin).is_ok() {
             let reg = self.apply(Self::take_register)?;
             self.assert_token(Token::IndexEnd)?;
@@ -583,7 +565,7 @@ where
     /// The operand consist of an optional addressing mode specifier, a base operand and an
     /// optional index register. The base operand can be either a symbol, a register or a value and
     /// is the only required component of the operand.
-    fn take_operand(&mut self) -> Result<Operand> {
+    fn take_operand(&mut self) -> Result<'t, Operand> {
         let start = self.boundary_right();
 
         // Take an optional adressing modifier.
@@ -605,17 +587,17 @@ where
         })
     }
 
-    pub fn take_opcode(&mut self) -> Result<OpCode> {
+    pub fn take_opcode(&mut self) -> Result<'t, OpCode> {
         match self.stream_mut().next() {
             Some((Token::RealOperator(op), _span)) => Ok(OpCode::Real(op)),
             Some((Token::PseudoOperator(op), _span)) => Ok(OpCode::Pseudo(op)),
-            Some((_, span)) => Err(ParseError::new(span, "expected an opcode")),
-            None => Err(ParseError::eos("expected an opcode")),
+            Some((got, span)) => Err(ParseError::unexpected(span, got, "expected an opcode".into())),
+            None => Err(ParseError::end_of_stream().context("expected an opcode")),
         }
     }
 
     /// Tries to parse an instruction, which can be either pseudo or concrete.
-    pub fn take_instruction(&mut self) -> Result<Instruction> {
+    pub fn take_instruction(&mut self) -> Result<'t, Instruction> {
         let start = self.boundary_right();
 
         let opcode = self.apply(Self::take_opcode)?;
@@ -644,14 +626,14 @@ where
         })
     }
 
-    fn take_part(&mut self) -> Result<Option<Part>> {
+    fn take_part(&mut self) -> Result<'t, Option<Part>> {
         let mut labels = Vec::new();
 
         // Take any number of labels.
         loop {
             match self.apply(Self::take_symbol) {
                 Ok(sym) => labels.push(sym),
-                Err(ParseError { kind: ErrorKind::EndOfStream, .. }) => return Ok(None),
+                Err(ParseError { kind: ParseErrorKind::EndOfStream, .. }) => return Ok(None),
                 Err(_) => break,
             }
         }
@@ -665,7 +647,7 @@ where
     }
 
     /// Tries to parse a whole symbolic program.
-    fn take_program(&mut self) -> Result<Program> {
+    fn take_program(&mut self) -> Result<'t, Program> {
         let take_part = || self.apply(Self::take_part).transpose();
 
         std::iter::from_fn(take_part)
@@ -681,7 +663,7 @@ pub fn parse_line(input: &str)
     Parser::from_str(input)
         .apply(Parser::take_part)
         .transpose()
-        .ok_or(ParseError::eos("expected an instruction"))
+        .ok_or(ParseError::end_of_stream().context("expected an instruction"))
         .and_then(|res| res) // Collapse the nested Results
 }
 
@@ -766,6 +748,10 @@ mod tests {
         println!("{:?}", result);
 
         if let Err(errors) = result {
+            for error in &errors { 
+                println!("Display: {}", error);
+            }
+
             print_errors(input, &errors);
         }
     }

@@ -18,14 +18,8 @@ enum Error {
     IO(std::io::Error),
 }
 
-impl From<ParseError> for Error {
-    fn from(_: ParseError) -> Error {
-        Error::Parse
-    }
-}
-
-impl From<ttk91::bytecode::parser::Error> for Error {
-    fn from(_: ttk91::bytecode::parser::Error) -> Error {
+impl<'a> From<ttk91::bytecode::parser::Error<'a>> for Error {
+    fn from(_: ttk91::bytecode::parser::Error<'a>) -> Error {
         Error::Parse
     }
 }
@@ -36,8 +30,8 @@ impl From<std::io::Error> for Error {
     }
 }
 
-impl<K> From<ttk91::error::ParseError<K>> for Error {
-    fn from(_: ttk91::error::ParseError<K>) -> Error {
+impl<'a> From<ttk91::symbolic::parser::ParseError<'a>> for Error {
+    fn from(_: ttk91::symbolic::parser::ParseError<'a>) -> Error {
         Error::Parse
     }
 }

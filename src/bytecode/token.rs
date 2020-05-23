@@ -1,5 +1,6 @@
 use logos::Logos;
 use std::str::FromStr;
+use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Section {
@@ -8,6 +9,18 @@ pub enum Section {
     Code,
     Data,
     SymbolTable,
+}
+
+impl fmt::Display for Section {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Section::Start => write!(f, "___b91___"), 
+            Section::End => write!(f, "___end___"), 
+            Section::Code => write!(f, "___code___"), 
+            Section::Data => write!(f, "___data___"), 
+            Section::SymbolTable => write!(f, "___symboltable___"), 
+        }
+    }
 }
 
 impl FromStr for Section {
@@ -39,4 +52,15 @@ pub enum Token<'t> {
 
     #[regex("(?i)[a-z_][a-z0-9_]*")]
     Symbol(&'t str),
+}
+
+impl<'t> fmt::Display for Token<'t> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Token::Error => write!(f, "<error>"),
+            Token::Section(section) => write!(f, "{}", section),
+            Token::Number(num) => write!(f, "{}", num),
+            Token::Symbol(label) => write!(f, "{}", label),
+        }
+    }
 }

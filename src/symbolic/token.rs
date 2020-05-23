@@ -1,5 +1,7 @@
 use logos::{Logos, Lexer};
 
+use std::fmt;
+
 use super::ast::{
     Register,
     RealOpCode,
@@ -101,4 +103,22 @@ fn operator_callback<'a>(lex: &mut Lexer<'a, Token<'a>>) -> std::result::Result<
 
 fn literal_callback<'a>(lex: &mut Lexer<'a, Token<'a>>) -> std::result::Result<i32, std::num::ParseIntError> {
     lex.slice().parse()
+}
+
+impl<'t> fmt::Display for Token<'t> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Token::Error => write!(f, "<error>"),
+            Token::Literal(num) => write!(f, "{}", num),
+            Token::Symbol(label) => write!(f, "{}", label),
+            Token::IndexBegin => write!(f, "("),
+            Token::IndexEnd => write!(f, ")"),
+            Token::ParameterSeparator => write!(f, ","),
+            Token::ImmediateModifier => write!(f, "="), 
+            Token::IndirectModifier => write!(f, "@"),
+            Token::Register(reg) => write!(f, "{}", reg),
+            Token::RealOperator(op) => write!(f, "{}", op),
+            Token::PseudoOperator(op) => write!(f, "{}", op),
+        }
+    }
 }

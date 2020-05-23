@@ -1,8 +1,11 @@
 use crate::instruction::{OpCode, Register, Mode, Instruction};
-use crate::parsing::{Error as ParseError, Span};
-use crate::symbolic::parser::{Parser, Context};
+use crate::parsing::Span;
+use super::parser::ParseError as ParseError;
+use crate::symbolic::parser::{Parser, ErrorKind};
 use crate::compiler::SourceMap;
 use crate::symbol_table::{SymbolId, SymbolTable};
+
+use std::fmt;
 
 #[derive(Debug, Clone)]
 pub struct InitializationTableEntry {
@@ -28,6 +31,16 @@ pub enum PseudoOpCode {
     DC,
     DS,
     EQU,
+}
+
+impl fmt::Display for PseudoOpCode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            PseudoOpCode::DC => write!(f, "DC"),
+            PseudoOpCode::DS => write!(f, "DS"),
+            PseudoOpCode::EQU => write!(f, "EQU"),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -167,23 +180,37 @@ impl Default for SecondOperand {
 }
 
 pub fn validate_instruction(instruction: super::ast::Instruction)
-    -> Result<SymbolicInstruction, ParseError<Context>>
+    -> Result<SymbolicInstruction, ParseError<'static>>
 {
     use super::ast::{OpCode, RealOpCode, JumpCondition};
 
     match instruction.opcode {
         OpCode::Pseudo(op) => {
             if instruction.operands.len() != 1 {
-                return Err(ParseError::new(instruction.span, "pseudo instructions take exactly one operand"));
+                let error = ParseError::other(
+                    instruction.span.clone(),
+                    ErrorKind::OperandCount {
+                        span: instruction.span,
+                        got: instruction.operands.len(),
+                        expected: 1,
+                    })
+                    .context("pseudo instructions take exactly one operand");
+
+                return Err(error);
             }
 
             let operand = &instruction.operands[0];
 
             if operand.index.is_some() || operand.mode.is_some() || !operand.base.is_immediate() {
-                return Err(ParseError::new(
-                    operand.span.clone(),
-                    "the operand should be a number literal for pseudo instructions",
-                ));
+                let kind = ErrorKind::InvalidOperand {
+                    span: operand.span.clone(),
+                    index: 0,
+                };
+
+                let error = ParseError::other(operand.span.clone(), kind)
+                    .context("the operand should be a number literal for pseudo instructions");
+
+                return Err(error);
             }
 
             let operand = match operand.base {
@@ -206,7 +233,16 @@ pub fn validate_instruction(instruction: super::ast::Instruction)
         },
         OpCode::Real(RealOpCode::NoOperation) => {
             if !instruction.operands.is_empty() {
-                return Err(ParseError::new(instruction.span, "the NOP instruction takes no operands"));
+                let kind = ErrorKind::OperandCount {
+                    span: instruction.span.clone(),
+                    expected: 0,
+                    got: instruction.operands.len(),
+                };
+
+                let error = ParseError::other(instruction.span, kind)
+                    .context("the NOP instruction takes no operands");
+
+                return Err(error);
             }
 
             Ok(SymbolicInstruction::Real(RealInstruction {
@@ -220,19 +256,30 @@ pub fn validate_instruction(instruction: super::ast::Instruction)
             | OpCode::Real(opcode @ RealOpCode::Not) =>
         {
             if instruction.operands.len() != 1 {
-                return Err(ParseError::new(
-                    instruction.span,
-                    "this instruction expects a single register operand",
-                ));
+                let kind = ErrorKind::OperandCount {
+                    span: instruction.span.clone(),
+                    expected: 1,
+                    got: instruction.operands.len(),
+                };
+
+                let error = ParseError::other(instruction.span, kind)
+                    .context("this instruction expects a single register operand");
+
+                return Err(error);
             }
 
             let operand = &instruction.operands[0];
 
             if operand.index.is_some() || operand.mode.is_some() || !operand.base.is_register() {
-                return Err(ParseError::new(
-                    operand.span.clone(),
-                    "the operand must be a register",
-                ));
+                let kind = ErrorKind::InvalidOperand {
+                    span: operand.span.clone(),
+                    index: 0,
+                };
+
+                let error = ParseError::other(instruction.span, kind)
+                    .context("this operand must be a register");
+
+                return Err(error);
             }
 
             Ok(SymbolicInstruction::Real(RealInstruction {
@@ -243,10 +290,16 @@ pub fn validate_instruction(instruction: super::ast::Instruction)
         },
         OpCode::Real(opcode @ RealOpCode::Jump { condition: JumpCondition::Unconditional, .. }) => {
             if instruction.operands.len() != 1 {
-                return Err(ParseError::new(
-                    instruction.span,
-                    "jump instructions that examine the state register take only a single operand",
-                ));
+                let kind = ErrorKind::OperandCount {
+                    span: instruction.span.clone(),
+                    expected: 1,
+                    got: instruction.operands.len(),
+                };
+
+                let error = ParseError::other(instruction.span, kind)
+                    .context("jump instructions that examine the state register take only a single operand");
+
+                return Err(error);
             }
 
             let operand = &instruction.operands[0];
@@ -259,20 +312,31 @@ pub fn validate_instruction(instruction: super::ast::Instruction)
         },
         OpCode::Real(opcode) => {
             if instruction.operands.len() != 2 {
-                return Err(ParseError::new(
-                    instruction.span,
-                    "this instruction expects two operands",
-                ));
+                let kind = ErrorKind::OperandCount {
+                    span: instruction.span.clone(),
+                    expected: 2,
+                    got: instruction.operands.len(),
+                };
+
+                let error = ParseError::other(instruction.span, kind)
+                    .context("this instruction expects two operands");
+
+                return Err(error);
             }
 
             let operand1 = &instruction.operands[0];
             let operand2 = &instruction.operands[1];
 
             if operand1.index.is_some() || operand1.mode.is_some() || !operand1.base.is_register() {
-                return Err(ParseError::new(
-                    operand1.span.clone(),
-                    "the first operand to an instruction must be a register",
-                ));
+                let kind = ErrorKind::InvalidOperand {
+                    span: operand1.span.clone(),
+                    index: 0,
+                };
+
+                let error = ParseError::other(operand1.span.clone(), kind)
+                    .context("this operand must be a register");
+
+                return Err(error);
             }
 
             Ok(SymbolicInstruction::Real(RealInstruction {
@@ -286,7 +350,7 @@ pub fn validate_instruction(instruction: super::ast::Instruction)
 
 
 impl Program {
-    pub fn parse(input: &str) -> Result<Program, ParseError<Context>> {
+    pub fn parse(input: &str) -> Result<Program, ParseError> {
         let mut parser = Parser::from_str(input);
         let ast = parser.parse()?; 
 
@@ -304,7 +368,7 @@ impl Program {
         })
     }
 
-    pub fn parse_verbose(input: &str) -> Result<Program, Vec<ParseError<Context>>> {
+    pub fn parse_verbose(input: &str) -> Result<Program, Vec<ParseError>> {
         let mut parser = Parser::from_str(input);
 
         let (ast, mut errors) = match parser.parse_verbose() {

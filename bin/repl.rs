@@ -227,15 +227,15 @@ impl ::std::fmt::Display for CommandError {
 
 
 #[derive(Debug)]
-enum Error {
+enum Error<'a> {
     MemoryError(MemoryError),
     CommandError(CommandError),
-    ParseError(ParseError),
+    ParseError(ParseError<'a>),
     Incomplete,
     UnknownSymbol(String),
 }
 
-impl ::std::fmt::Display for Error {
+impl<'a> ::std::fmt::Display for Error<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             Error::CommandError(ce) => write!(f, "command error: {}", ce),
@@ -247,20 +247,20 @@ impl ::std::fmt::Display for Error {
     }
 }
 
-impl From<MemoryError> for Error {
-    fn from(me: MemoryError) -> Error {
+impl<'a> From<MemoryError> for Error<'a> {
+    fn from(me: MemoryError) -> Error<'a> {
         Error::MemoryError(me)
     }
 }
 
-impl From<ParseError> for Error {
-    fn from(e: ParseError) -> Error {
+impl<'a> From<ParseError<'a>> for Error<'a> {
+    fn from(e: ParseError<'a>) -> Error<'a> {
         Error::ParseError(e)
     }
 }
 
-impl From<CommandError> for Error {
-    fn from(ce: CommandError) -> Error {
+impl<'a> From<CommandError> for Error<'a> {
+    fn from(ce: CommandError) -> Error<'a> {
         Error::CommandError(ce)
     }
 }
@@ -304,7 +304,7 @@ impl REPL {
         self.emulator.set_logger(logger);
     }
 
-    fn handle_command(&mut self, command: &str) -> Result<(), Error> {
+    fn handle_command<'a>(&mut self, command: &'a str) -> Result<(), Error<'a>> {
         let command = &command[..command.len()-1];
 
         let args: Vec<_> = command
@@ -432,7 +432,7 @@ impl REPL {
         }
     }
 
-    fn handle_line(&mut self, input: &str) -> Result<(), Error> {
+    fn handle_line<'a>(&mut self, input: &'a str) -> Result<(), Error<'a>> {
         if input.chars().next() == Some('.') {
             self.handle_command(&input[1..])?;
             return Ok(());
