@@ -23,6 +23,7 @@ use super::ast::{
 };
 
 use crate::parsing::{
+    assert_token,
     BufferedStream,
     either,
     Either,
@@ -31,6 +32,7 @@ use crate::parsing::{
     Parser as ParserTrait,
     SeekStream,
     Span,
+    take_token,
 };
 
 use crate::symbol_table::{SymbolTable, SymbolId, References, Label};
@@ -79,25 +81,15 @@ impl From<String> for Context {
 
 type Result<T> = std::result::Result<T, ParseError>;
 
-impl<'a,T> ParserTrait<(Token<'a>, Span)> for Parser<'a, T> {
-    type Context = State<T>;
+impl<'a, T> ParserTrait<Token<'a>> for Parser<'a, T> {
+    type Stream = BufferedStream<logos::SpannedIter<'a, Token<'a>>>;
 
-    fn span(&self) -> Option<&Span> {
-        self.stream.at_offset(-1).map(|t| &t.1)
+    fn stream(&self) -> &Self::Stream {
+        &self.stream
     }
 
-    fn span_next(&mut self) -> Option<&Span> {
-        match self.stream.next() {
-            Some(_) => {
-                self.stream.seek(-1);
-                self.stream.at_offset(0).map(|t| &t.1)
-            },
-            None => None,
-        }
-    }
-
-    fn parts(&mut self) -> (&mut dyn SeekStream<Item=(Token<'a>, Span)>, &mut Self::Context) {
-        (&mut self.stream, &mut self.state)
+    fn stream_mut(&mut self) -> &mut Self::Stream {
+        &mut self.stream
     }
 }
 
@@ -353,7 +345,7 @@ where
 
         let error = match self.parse() {
             Ok(program) => {
-                if let Some(span) = self.span_next() {
+                if let Some((_, span)) = self.stream_mut().next() {
                     trace!(logger, "Trailing Input");
                     let ctx = Context::TrailingInput;
                     return IterativeParsingResult::Error(ParseError::new(span.clone(), ctx));
@@ -478,7 +470,7 @@ where
     /// Tries to parse a "pseudo" opcode, meaning an opcode that has no directly corresponding
     /// instruction and is meant for preprocessing or other stages of the compilation.
     fn take_pseudo_opcode(&mut self) -> Result<PseudoOpCode> {
-        match self.stream().next() {
+        match self.stream_mut().next() {
             Some((Token::PseudoOperator(op), _)) => Ok(op),
             Some((_, span)) => Err(ParseError::new(span, "expected a pseudo opcode")),
             None => Err(ParseError::eos("expected a pseudo opcode")),
@@ -488,7 +480,7 @@ where
     /// Tries to parse a "concrete" opcode, meaning an opcode that directly corresponds to an
     /// instruction on the instruction set.
     fn take_concrete_opcode(&mut self) -> Result<OpCode> {
-        match self.stream().next() {
+        match self.stream_mut().next() {
             Some((Token::Operator(op), _)) => Ok(op),
             Some((_, span)) => Err(ParseError::new(span, "expected a concrete opcode")),
             None => Err(ParseError::eos("expected a concrete opcode")),
@@ -497,7 +489,7 @@ where
 
     /// Tries to parse an register (R1-R9, SP or FP).
     fn take_register(&mut self) -> Result<Register> {
-        match self.stream().next() {
+        match self.stream_mut().next() {
             Some((Token::Register(reg), _)) => Ok(reg),
             Some((_, span)) => Err(ParseError::new(span, "expected a register")),
             None => Err(ParseError::eos("expected a register")),
@@ -510,14 +502,14 @@ where
     /// Any additional symbol metadata (including it's label) can be accessed via the
     /// [SymbolTable].
     fn take_symbol(&mut self) -> Result<SymbolId> {
-        match self.stream().next() {
+        match self.stream_mut().next() {
             Some((Token::Symbol(label), span)) => {
-                let id = self.context()
+                let id = self.state
                     .symbol_table
                     .borrow_mut()
                     .get_or_create(label.to_string());
 
-                let sym = self.context()
+                let sym = self.state
                     .symbol_table
                     .borrow_mut()
                     .get_symbol_mut(id);
@@ -534,7 +526,7 @@ where
 
     /// Tries to parse an integer literal.
     fn take_literal(&mut self) -> Result<i32> {
-        match self.stream().next() {
+        match self.stream_mut().next() {
             Some((Token::Literal(num), _)) => Ok(num),
             Some((_, span)) => Err(ParseError::new(span, "expected a literal")),
             None => Err(ParseError::eos("expected a literal")),
@@ -544,8 +536,8 @@ where
     /// Tries to parse an addressing mode specifier (either `@` or `=`).
     fn take_modifier(&mut self) -> Result<Mode> {
         let res = self.apply(either(
-            Self::take_token(Token::ImmediateModifier),
-            Self::take_token(Token::IndirectModifier),
+            take_token(Token::ImmediateModifier),
+            take_token(Token::IndirectModifier),
         ))?;
 
         match res {
@@ -571,36 +563,15 @@ where
         }
     }
 
-    /// Returns a parsing function that either parses an token and returns it or fails.
-    fn take_token(token: Token<'t>)
-        -> impl FnOnce(&mut Parser<'t,T>) -> Result<Token<'t>>
-    {
-        let ctx = format!("expected token {:?}", token);
-        move |parser| {
-            match parser.stream().next() {
-                Some((t, _)) if t == token => Ok(t),
-                Some((_, span)) => Err(ParseError::new(span, ctx)),
-                None => Err(ParseError::eos(ctx)),
-            }
-        }
-    }
-
-    /// Returns a parsing function which either consumes the specified token or fails.
-    fn assert_token(token: Token<'t>)
-        -> impl FnOnce(&mut Parser<'t,T>) -> Result<()>
-    {
-        move |parser| parser.apply(Self::take_token(token)).map(|_| ())
-    }
-
     /// Tries to parse an index register construct, including the parentheses.
     ///
     /// Note that this function returns an [Option] and so succeeds even if no index register
     /// construct is present. However, if there is an opening parenthesis, but the rest of the
     /// constuct is malformed, this function returns an error.
     fn take_index_register(&mut self) -> Result<Option<Register>> {
-        if self.apply(Self::assert_token(Token::IndexBegin)).is_ok() {
+        if self.assert_token::<()>(Token::IndexBegin).is_ok() {
             let reg = self.apply(Self::take_register)?;
-            self.apply(Self::assert_token(Token::IndexEnd))?;
+            self.assert_token(Token::IndexEnd)?;
 
             return Ok(Some(reg));
         }
@@ -680,7 +651,7 @@ where
         }
 
         // The ParameterSeparator token (a comma) has no syntactial purpose but is required.
-        self.apply(Self::assert_token(Token::ParameterSeparator))
+        self.assert_token(Token::ParameterSeparator)
             .context("expected a comma")?;
 
         let operand2 = self.apply(Self::take_second_operand)
@@ -738,15 +709,15 @@ where
             }
 
             // Get the starting position of the current instruction.
-            let start = self.span_next().cloned();
+            let start = self.boundary_right();
 
             let instruction = self.apply(Self::take_instruction)?;
 
             // Get the ending position of the current instruction.
-            let end = self.span().clone();
+            let end = self.boundary_left();
 
             let span = match (start, end) {
-                (Some(start), Some(end)) => Some(start.end .. end.start),
+                (Some(start), Some(end)) => Some(start .. end),
                 _ => None,
             };
 

@@ -1,127 +1,228 @@
 use std::result::Result as StdResult;
+use logos::Logos;
 
-use crate::symbol_table::{SymbolTable, Address};
-
-use nom::{
-    IResult,
-    bytes::complete::{tag, take_while},
-    combinator::{map, map_res},
-    multi::{many0, fold_many0},
-    sequence::{delimited, terminated, tuple, preceded, separated_pair},
+use crate::parsing::{
+    Parser as ParserTrait,
+    BufferedStream,
+    Error as ParseError,
+    ErrorExt,
+    Either,
+    either,
 };
 
+use super::token::{
+    Token,
+    Section,
+};
+
+use crate::symbol_table::{SymbolTable, Address, Label};
 use super::program::{Segment, Program};
 
-use nom_locate::LocatedSpan;
-
-type Span<'a> = LocatedSpan<&'a str>;
-
-/// Represents error specific to bytecode file parsing.
-#[derive(Debug, Clone)]
-pub enum ErrorKind {}
-
-/// Represents an error which has prevented the bytecode file from being parsed.
-pub type ParseError = crate::error::ParseError<ErrorKind>;
-type Result<'a,T> = IResult<Span<'a>, T, ParseError>;
-
-const SPACE_CHARACTERS: &'static str = " \t";
-const NEWLINE_CHARACTERS: &'static str = "\r\n";
-
-fn sp(input: Span) -> Result<Span> {
-    take_while(|c| SPACE_CHARACTERS.contains(c))(input)
+#[derive(Debug)]
+pub enum Context {
+    RepeatedSection,
+    SectionSizeConflict {
+        specified: usize,
+        got: usize,
+    },
+    Other {
+        message: String,
+    },
 }
 
-fn newline(input: Span) -> Result<Span> {
-    take_while(|c| NEWLINE_CHARACTERS.contains(c))(input)
-}
-
-pub(crate) fn parse_bytecode_file(input: Span) -> StdResult<Program, ParseError> {
-    match parse_bytecode_file_nom(input) {
-        Ok((_, program)) => Ok(program),
-        Err(nom::Err::Error(err)) | Err(nom::Err::Failure(err)) => Err(err),
-        Err(nom::Err::Incomplete(_)) => Err(ParseError::incomplete()),
+impl From<&str> for Context {
+    fn from(s: &str) -> Context {
+        Context::Other {
+            message: s.to_string(),
+        }
     }
 }
 
-fn parse_segment(header: &'static str) -> impl for<'a> Fn(Span<'a>) -> Result<'a, Segment> {
-    fn _parse_segment<'a>(header: &'static str, input: Span<'a>) -> Result<'a, Segment> {
-        map(
-            preceded(
-                terminated(tag(header), newline),
-                tuple((
-                    terminated(
-                        separated_pair(take_usize(10), sp, take_usize(10)),
-                        newline,
-                    ),
-                    many0(terminated(map(take_u32(10), |i| i as i32), newline)),
-                ))
-            ),
-            |((start, _end), content)| Segment {
-                start,
+impl From<String> for Context {
+    fn from(s: String) -> Context {
+        Context::Other {
+            message: s,
+        }
+    }
+}
+
+pub type Error = ParseError<Context>;
+pub type Result<T> = std::result::Result<T, Error>;
+
+pub(crate) fn parse_bytecode_file(input: &str) -> Result<Program> {
+    Parser::parse(input)
+}
+
+struct Parser<'t> {
+    stream: BufferedStream<logos::SpannedIter<'t, Token<'t>>>,
+}
+
+impl<'t> ParserTrait<Token<'t>> for Parser<'t> {
+    type Stream = BufferedStream<logos::SpannedIter<'t, Token<'t>>>;
+
+    fn stream(&self) -> &Self::Stream {
+        &self.stream
+    }
+
+    fn stream_mut(&mut self) -> &mut Self::Stream {
+        &mut self.stream
+    }
+}
+
+enum SectionContent {
+    SymbolTable(SymbolTable),
+    Code(Segment),
+    Data(Segment),
+} 
+
+
+impl<'t> Parser<'t> {
+    fn from_str(input: &'t str) -> Parser<'t> {
+        let lex = Token::lexer(input);
+        let stream = BufferedStream::from(lex.spanned());
+
+        Parser {
+            stream,
+        }
+    }
+    
+    fn take_number(&mut self) -> Result<i32> {
+        match self.stream_mut().next() {
+            Some((Token::Number(num), _)) => Ok(num),
+            Some((_, span)) => Err(Error::new(span, "expected a number")),
+            None => Err(Error::eos("expected a number")),
+        }
+    }
+
+    fn take_word_sequence(&mut self) -> Result<Vec<i32>> {
+        let mut words = Vec::new();
+
+        while let Ok(word) = self.apply(Self::take_number) {
+            words.push(word);
+        }
+
+        Ok(words)
+    }
+
+    fn take_section_with_header(header: Section) -> impl FnOnce(&mut Parser<'t>) -> Result<Segment> {
+        move |parser| {
+            parser.assert_token(Token::Section(header))
+                .context("Expected ___data___ header")?;
+
+            let header_start = parser.boundary_right().unwrap();
+            let start = parser.apply(Self::take_number)
+                .context("expected section start address")?;
+            let end = parser.apply(Self::take_number)
+                .context("expected section end address")?;
+            let header_end = parser.boundary_left().unwrap();
+
+            let mut content = Vec::with_capacity((end - start + 1) as usize);
+
+            while let Ok(word) = parser.apply(Self::take_number) {
+                content.push(word);
+            }
+
+            if content.len() != (end - start + 1) as usize {
+                let span = header_start .. header_end;
+
+                return Err(Error::new(span, Context::SectionSizeConflict {
+                    specified: (end - start + 1) as usize,
+                    got: content.len(),
+                }));
+            }
+
+            Ok(Segment {
+                start: start as usize,
                 content,
-            },
-        )(input)
+            })
+        }
     }
 
-    move |input| _parse_segment(header, input)
-}
+    fn take_label(&mut self) -> Result<&'t str> {
+        match self.stream_mut().next() {
+            Some((Token::Symbol(sym), _)) => Ok(sym),
+            Some((_, span)) => Err(Error::new(span, "expected a symbol")),
+            None => Err(Error::eos("expected a symbol")),
+        }
+    }
 
-fn take_symbol_name(input: Span) -> Result<Span> {
-    take_while(char::is_alphanumeric)(input)
-}
+    fn take_symbol_table_section(&mut self) -> Result<SymbolTable> {
+        let mut table = SymbolTable::new();
 
-fn take_usize(base: u32) -> impl Fn(Span) -> Result<usize> {
-    move |input: Span| map_res(
-        take_while(|c: char| c.is_digit(base)),
-        |s: Span| usize::from_str_radix(s.fragment, base),
-    )(input)
-}
+        self.assert_token(Token::Section(Section::SymbolTable))
+            .context("expected ___symboltable___ header")?;
 
-fn take_u32(base: u32) -> impl Fn(Span) -> Result<u32> {
-    move |input: Span| map_res(
-        take_while(|c: char| c.is_digit(base)),
-        |s: Span| u32::from_str_radix(s.fragment, base),
-    )(input)
-}
+        while let Ok(label) = self.apply(Self::take_label) {
+            let address = self.apply(Self::take_number)?;
 
-fn take_u16(base: u32) -> impl Fn(Span) -> Result<u16> {
-    move |input: Span| map_res(
-        take_while(|c: char| c.is_digit(base)),
-        |s: Span| u16::from_str_radix(s.fragment, base),
-    )(input)
-}
+            let id = table.get_or_create(label.to_string());
+            let sym = table.get_symbol_mut(id);
+            sym.set::<Address>(Some(address as u16));
+            sym.set::<Label>(Some(label.to_string()));
+        }
 
-fn parse_symbol_table(input: Span) -> Result<SymbolTable> {
-    preceded(
-        preceded(tag("___symboltable___"), newline),
-        fold_many0(
-            terminated(separated_pair(take_symbol_name, sp, take_u16(10)), newline),
-            SymbolTable::new(),
-            |mut m, (symbol, value)| {
-                let id = m.define_symbol(0..0, symbol.to_string(), value as i32).unwrap();
-                m.get_symbol_mut(id).set::<Address>(Some(value));
-                // m.insert(symbol.to_string(), value);
-                m
-            },
-        ),
-    )(input)
-}
+        Ok(table)
+    }
 
-fn parse_bytecode_file_nom(input: Span) -> Result<Program> {
-    map(
-        delimited(
-            preceded(tag("___b91___"), newline),
-            tuple((
-                    parse_segment("___code___"),
-                    parse_segment("___data___"),
-                    parse_symbol_table,
-            )),
-            preceded(tag("___end___"), newline),
-        ),
-        |(code, data, symbol_table)| Program {
+    fn take_section(&mut self) -> Result<SectionContent> {
+        let op = either(
+            Self::take_symbol_table_section,
+            either(
+                Self::take_section_with_header(Section::Data),
+                Self::take_section_with_header(Section::Code),
+            ),t 
+        );
+
+        let section = match self.apply(op)? {
+            Either::Right(Either::Left(data)) => SectionContent::Data(data),
+            Either::Right(Either::Right(code)) => SectionContent::Code(code),
+            Either::Left(st) => SectionContent::SymbolTable(st),
+        };
+
+        Ok(section)
+    }
+
+    fn parse(input: &'t str) -> Result<Program> {
+        let mut parser = Parser::from_str(input);
+
+        let mut symbol_table = None;
+        let mut code = None;
+        let mut data = None;
+
+        parser.assert_token(Token::Section(Section::Start))?;
+
+        while symbol_table.is_none() || code.is_none() || data.is_none() {
+            let start = parser.boundary_right().unwrap();
+
+            match parser.apply(Self::take_section)? {
+                SectionContent::SymbolTable(section) if symbol_table.is_none() => symbol_table = Some(section),
+                SectionContent::Code(section) if code.is_none() => code = Some(section),
+                SectionContent::Data(section) if data.is_none() => data = Some(section),
+                _ => {
+                    let end = parser.boundary_left().unwrap();
+
+                    return Err(Error::new(start..end, Context::RepeatedSection));
+                }
+            }
+        }
+
+        parser.assert_token(Token::Section(Section::End))?;
+
+        let code = code.unwrap_or_default();
+        let data = data.unwrap_or_default();
+
+        Ok(Program {
+            symbol_table: symbol_table.unwrap_or_default(),
             code,
             data,
-            symbol_table,
-        },
-    )(input)
+        })
+    }
+}
+
+#[test]
+fn tokenize() {
+    let bytecode_file = include_str!("../../tests/hello.b91");
+    let lex = Token::lexer(bytecode_file);
+    let tokens = lex.into_iter().collect::<Vec<_>>();
+    println!("{:?}", tokens);
 }

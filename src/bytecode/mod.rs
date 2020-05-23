@@ -1,5 +1,6 @@
 //! Parsing and storing bytecode programs.
 
+mod token;
 mod parser;
 mod program;
 

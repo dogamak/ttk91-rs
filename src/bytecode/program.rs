@@ -1,4 +1,4 @@
-use super::parser::{parse_bytecode_file, ParseError};
+use super::parser::{parse_bytecode_file, Error};
 use crate::symbol_table::SymbolTable;
 
 #[derive(Debug, Clone, Default)]
@@ -15,8 +15,8 @@ pub struct Program {
 }
 
 impl Program {
-    pub fn parse<'a>(bytecode: &'a str) -> Result<Program, ParseError> {
-        parse_bytecode_file(nom_locate::LocatedSpan::new(bytecode))
+    pub fn parse<'a>(bytecode: &'a str) -> Result<Program, Error> {
+        parse_bytecode_file(bytecode)
     }
 
     pub fn to_words(&self) -> Vec<i32> {

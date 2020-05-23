@@ -116,7 +116,7 @@ impl<I> SeekStream for &mut dyn SeekStream<Item=I> {
     }
 }
 
-pub(crate) struct BufferedStream<S: Iterator> {
+pub struct BufferedStream<S: Iterator> {
     stream: S,
     position: usize,
     buffer: Vec<S::Item>,
@@ -210,52 +210,140 @@ where
 }
 
 pub trait Parser<T> {
-    type Context;
+    type Stream: SeekStream<Item=(T, Span)>;
 
-    fn parts(&mut self) -> (&mut dyn SeekStream<Item=T>, &mut Self::Context);
+    fn stream(&self) -> &Self::Stream;
+    fn stream_mut(&mut self) -> &mut Self::Stream;
 
-    fn span(&self) -> Option<&Span>;
-    fn span_next(&mut self) -> Option<&Span>;
+    fn boundary_right(&mut self) -> Option<usize> {
+        let stream = self.stream_mut();
 
-    fn stream(&mut self) -> &mut dyn SeekStream<Item=T> {
-        self.parts().0
+        match stream.next() {
+            Some(_) => {
+                stream.seek(-1);
+                stream.at_offset(0).map(|t| (t.1).start)
+            },
+            None => None,
+        }
     }
 
-    fn context<'a>(&'a mut self) -> &'a mut Self::Context where T: 'a {
-        self.parts().1
+    fn boundary_left(&mut self) -> Option<usize> {
+        let stream = self.stream_mut();
+        stream.at_offset(-1).map(|t| (t.1).end)
     }
 
-    fn apply<P,R,C>(&mut self, parser: P) -> Result<R, Error<C>>
+    fn apply<P,O,X>(&mut self, op: P) -> Result<O, Error<X>>
     where
-        P: FnOnce(&mut Self) -> Result<R, Error<C>>
+        Self: Sized,
+        P: Operation<Self,O,X>,
+        // P: FnOnce(&mut Self) -> Result<R, Error<C>>
     {
-        let position = self.stream().offset() as isize;
+        let position = self.stream_mut().offset() as isize;
         
-        let result = parser(self);
+        let result = op.call(self);
+
+        let stream = self.stream_mut();
 
         if result.is_err() {
-            let delta = position - self.stream().offset() as isize;
-            self.stream().seek(delta);
+            let delta = position - stream.offset() as isize;
+            stream.seek(delta);
         }
 
         result
     }
+
+    fn take_token<X>(&mut self, token: T) -> Result<T, Error<X>>
+    where
+        T: PartialEq,
+        Self: Sized,
+    {
+        self.apply(take_token(token))
+    }
+
+    fn assert_token<X>(&mut self, token: T) -> Result<(), Error<X>>
+    where
+        T: PartialEq,
+        Self: Sized,
+    {
+        self.apply(assert_token(token))
+    }
 }
 
 impl<P,T> Parser<T> for &mut P where P: Parser<T> {
-    type Context = P::Context;
+    type Stream = P::Stream;
 
-    fn parts(&mut self) -> (&mut dyn SeekStream<Item=T>, &mut Self::Context) {
-        (**self).parts()
+    fn stream(&self) -> &Self::Stream {
+        (*self).stream()
     }
 
-    fn span(&self) -> Option<&Span> {
-        (**self).span()
+    fn stream_mut(&mut self) -> &mut Self::Stream {
+        (*self).stream_mut()
     }
+}
 
-    fn span_next(&mut self) -> Option<&Span> {
-        (**self).span_next()
+pub trait Operation<Parser,Output,Context> {
+    fn call<'a>(self, parser: &'a mut Parser) -> Result<Output, Error<Context>>;
+}
+
+impl<F,Parser,Output,Context> Operation<Parser,Output,Context> for F
+where
+    F: FnOnce(&mut Parser) -> Result<Output, Error<Context>>,
+{
+    fn call(self, parser: &mut Parser) -> Result<Output, Error<Context>> {
+        self(parser)
     }
+} 
+
+pub struct AssertToken<T>(T);
+
+impl<P,T,X> Operation<P,(),X> for AssertToken<T>
+where
+    P: Parser<T>,
+    T: PartialEq,
+{
+    fn call(self, parser: &mut P) -> Result<(), Error<X>> {
+        match parser.stream_mut().next() {
+            Some((t, _)) if t == self.0 => Ok(()),
+            Some((_, span)) => Err(Error {
+                kind: ErrorKind::UnexpectedToken { span },
+                context: Vec::new(),
+            }),
+            None => Err(Error {
+                kind: ErrorKind::EndOfStream,
+                context: Vec::new(),
+            }),
+        }
+    }
+}
+
+pub fn assert_token<T>(token: T) -> AssertToken<T> {
+    AssertToken(token)
+}
+
+pub struct TakeToken<T>(T);
+
+impl<P,T,X> Operation<P,T,X> for TakeToken<T>
+where
+    P: Parser<T>,
+    T: PartialEq,
+{
+    fn call(self, parser: &mut P) -> Result<T, Error<X>> {
+        match parser.stream_mut().next() {
+            Some((t, _)) if t == self.0 => Ok(t),
+            Some((_, span)) => Err(Error {
+                kind: ErrorKind::UnexpectedToken { span },
+                context: Vec::new(),
+            }),
+            None => Err(Error {
+                kind: ErrorKind::EndOfStream,
+                context: Vec::new(),
+            }),
+        }
+    }
+}
+
+pub fn take_token<T>(token: T) -> TakeToken<T> {
+    TakeToken(token)
 }
 
 pub(crate) trait ParseExt<T> {
@@ -324,8 +412,8 @@ pub fn either<P1,P2,R1,R2,C,P,I>(parser1: P1, parser2: P2)
     -> impl FnOnce(&mut P) -> Result<Either<R1,R2>, Error<C>>
 where
     P: Parser<I>,
-    P1: FnOnce(&mut P) -> Result<R1, Error<C>>,
-    P2: FnOnce(&mut P) -> Result<R2, Error<C>>,
+    P1: Operation<P,R1,C>,
+    P2: Operation<P,R2,C>,
 {
     move |parser| {
         let err = match parser.apply(parser1) {
