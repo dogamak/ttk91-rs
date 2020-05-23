@@ -1,4 +1,3 @@
-#![feature(unboxed_closures)]
 //! A create for doing anything related to the imaginary TTK91 instruction architecture used in
 //! teaching at University of Helsinki.
 //!
