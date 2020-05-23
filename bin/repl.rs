@@ -1,7 +1,5 @@
-use std::sync::{Arc, RwLock, Mutex, MutexGuard, PoisonError};
-use std::rc::Rc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::convert::TryFrom;
-use std::collections::HashMap;
 use std::io::Write;
 use std::str::FromStr;
 use std::ops::RangeInclusive;
@@ -16,7 +14,6 @@ use ttk91::{
     symbol_table::{
         Label,
         Value,
-        SymbolId,
         SymbolTable,
     },
     symbolic::{
@@ -52,7 +49,7 @@ enum MemoryError {
 }
 
 impl<'a,T> From<PoisonError<T>> for MemoryError {
-    fn from(e: PoisonError<T>) -> MemoryError {
+    fn from(_: PoisonError<T>) -> MemoryError {
         MemoryError::ConcurrencyError
     }
 }
@@ -147,13 +144,13 @@ impl Memory for SharedMemory {
         let addr = addr & 0x7FFF;
 
         match self.instructions.lock() {
-            Err(e) => Err(MemoryError::ConcurrencyError),
+            Err(_) => Err(MemoryError::ConcurrencyError),
             Ok(guard) => {
                 match guard.get(addr as usize) {
                     None => Err(MemoryError::InvalidAddress { address: addr }),
                     Some(word) => {
                         match Instruction::try_from(*word) {
-                            Err(e) => Err(MemoryError::InvalidInstruction),
+                            Err(_) => Err(MemoryError::InvalidInstruction),
                             Ok(ins) => Ok(ins),
                         }
                     },
@@ -231,7 +228,6 @@ enum Error<'a> {
     MemoryError(MemoryError),
     CommandError(CommandError),
     ParseError(ParseError<'a>),
-    Incomplete,
     UnknownSymbol(String),
 }
 
@@ -240,8 +236,7 @@ impl<'a> ::std::fmt::Display for Error<'a> {
         match self {
             Error::CommandError(ce) => write!(f, "command error: {}", ce),
             Error::MemoryError(me) => write!(f, "memory error: {}", me),
-            Error::ParseError(e) => write!(f, "parse error: {:?}", e), // FIXME
-            Error::Incomplete => write!(f, "incomplete input"),
+            Error::ParseError(e) => write!(f, "parse error: {}", e),
             Error::UnknownSymbol(sym) => write!(f, "unknown symbol: {}", sym),
         }
     }
@@ -306,10 +301,6 @@ impl REPL {
 
     fn handle_command<'a>(&mut self, command: &'a str) -> Result<(), Error<'a>> {
         let command = &command[..command.len()-1];
-
-        let args: Vec<_> = command
-            .split(char::is_whitespace)
-            .collect();
 
         let cmd = command
             .split(char::is_whitespace)
@@ -413,17 +404,16 @@ impl REPL {
 
         loop {
             print!("0x{:x}> ", (self.memory.instructions.lock().unwrap().len() as u16) | 0x8000);
-            ::std::io::stdout().flush();
+            let _ = ::std::io::stdout().flush();
             
             let mut input = String::new();
-            ::std::io::stdin().read_line(&mut input);
+            let _ = ::std::io::stdin().read_line(&mut input);
 
             match self.handle_line(&input) {
                 Ok(()) => {},
                 Err(err) => {
                     if let Error::ParseError(err) = err {
-                        eprintln!("Error: {:?}", err);
-                        // TODO: eprintln!("Error: {}", err.verbose(&input));
+                        eprintln!("Error: {}", err);
                     } else {
                         eprintln!("Error: {}", err);
                     }

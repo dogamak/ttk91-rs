@@ -1,16 +1,12 @@
 use ttk91::{
     bytecode,
-    symbolic::{
-        self,
-        parser::ParseError,
-    },
-    emulator::{Emulator, Memory, StdIo},
+    symbolic,
+    emulator::{Emulator, StdIo},
 };
-use std::env::args;
 
 use clap::{App, Arg, ArgMatches};
-use slog::{Logger, Discard, Drain, o};
-use slog_term::{TermDecorator, FullFormat, CompactFormat};
+use slog::{Logger, Drain, o};
+use slog_term::{TermDecorator, FullFormat};
 
 enum Error {
     Parse,
@@ -79,7 +75,7 @@ fn run(file_path: &str, logger: Option<Logger>) -> Result<(), Error> {
     let file = std::fs::read_to_string(file_path)?;
     let program;
 
-    let mut is_symbolic = file_path.ends_with(".k91");
+    let is_symbolic = file_path.ends_with(".k91");
 
     if is_symbolic {
         let res = symbolic::Program::parse(&*file);

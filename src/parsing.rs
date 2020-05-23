@@ -333,11 +333,11 @@ impl<P,T> Parser<T> for &mut P where P: Parser<T> {
     type Stream = P::Stream;
 
     fn stream(&self) -> &Self::Stream {
-        (*self).stream()
+        (**self).stream()
     }
 
     fn stream_mut(&mut self) -> &mut Self::Stream {
-        (*self).stream_mut()
+        (**self).stream_mut()
     }
 }
 
@@ -485,7 +485,7 @@ where
     T: Clone,
 {
     move |parser| {
-        let mut err = match parser.apply(parser1) {
+        let err = match parser.apply(parser1) {
             Ok(r) => return Ok(Either::Left(r)),
             Err(err) => err,
         };
@@ -493,7 +493,7 @@ where
         // TODO: Clean this mess up
         match parser.apply(parser2) {
             Ok(r) => Ok(Either::Right(r)),
-            Err(mut err2) => match (err.span(), err2.span()) {
+            Err(err2) => match (err.span(), err2.span()) {
                 (None, None) => Err(err),
                 (Some(_), None) => Err(err2),
                 (None, Some(_)) => Err(err),

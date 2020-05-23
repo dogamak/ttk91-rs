@@ -327,7 +327,7 @@ where
 
         let error = match self.parse() {
             Ok(program) => {
-                if let Some((_, span)) = self.stream_mut().next() {
+                if let Some(_) = self.stream_mut().next() {
                     trace!(logger, "Trailing Input");
                     return IterativeParsingResult::Error(ParseError::new(ParseErrorKind::TrailingInput));
                 } else {
@@ -445,26 +445,6 @@ where
             IterativeParsingResult::Fixes(program, fixes)
         } else {
             IterativeParsingResult::Error(ParseError::end_of_stream())
-        }
-    }
-
-    /// Tries to parse a "pseudo" opcode, meaning an opcode that has no directly corresponding
-    /// instruction and is meant for preprocessing or other stages of the compilation.
-    fn take_pseudo_opcode(&mut self) -> Result<'t, PseudoOpCode> {
-        match self.stream_mut().next() {
-            Some((Token::PseudoOperator(op), _)) => Ok(op),
-            Some((got, span)) => Err(ParseError::unexpected(span, got, "expected a pseudo opcode".into())),
-            None => Err(ParseError::end_of_stream().context("expected a pseudo opcode")),
-        }
-    }
-
-    /// Tries to parse a "concrete" opcode, meaning an opcode that directly corresponds to an
-    /// instruction on the instruction set.
-    fn take_real_opcode(&mut self) -> Result<'t, RealOpCode> {
-        match self.stream_mut().next() {
-            Some((Token::RealOperator(op), _)) => Ok(op),
-            Some((got, span)) => Err(ParseError::unexpected(span, got, "expected a real opcode".into())),
-            None => Err(ParseError::end_of_stream().context("expected a real opcode")),
         }
     }
 

@@ -116,16 +116,6 @@ impl<'t> Parser<'t> {
         }
     }
 
-    fn take_word_sequence(&mut self) -> Result<'t, Vec<i32>> {
-        let mut words = Vec::new();
-
-        while let Ok(word) = self.apply(Self::take_number) {
-            words.push(word);
-        }
-
-        Ok(words)
-    }
-
     fn take_section_with_header(header: Section) -> impl FnOnce(&mut Parser<'t>) -> Result<'t, Segment> {
         move |parser| {
             parser.assert_token(Token::Section(header))
