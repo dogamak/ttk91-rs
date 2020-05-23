@@ -83,20 +83,20 @@
 //! 3
 //! 2
 //! 1
-//! 0x8004> 
+//! 0x8004>
 //! ```
 //!
 //! ## `ttk91run`
 //! ## `ttk91compile`
-pub mod parsing;
-pub mod symbol_table;
-pub mod emulator;
-pub mod instruction;
 pub mod bytecode;
-pub mod symbolic;
 pub mod compiler;
+pub mod emulator;
 pub mod error;
 pub mod event;
+pub mod instruction;
+pub mod parsing;
+pub mod symbol_table;
+pub mod symbolic;
 
 //pub use emulator::{Memory, Emulator};
 //pub use program::Program;

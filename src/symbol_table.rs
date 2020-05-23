@@ -1,9 +1,9 @@
 use logos::Span;
 
-use std::collections::HashMap;
-use std::marker::PhantomData;
 use std::any::{Any, TypeId};
+use std::collections::HashMap;
 use std::fmt::Debug;
+use std::marker::PhantomData;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
@@ -65,7 +65,10 @@ pub struct Location<T> {
     loc: PhantomData<T>,
 }
 
-impl<T> SymbolTableField for Location<T> where T: CompileTarget {
+impl<T> SymbolTableField for Location<T>
+where
+    T: CompileTarget,
+{
     const NAME: &'static str = "Location";
     type Value = Option<T::Location>;
 }
@@ -98,7 +101,7 @@ trait SymbolTableEntryTrait {
 }
 
 impl<T> SymbolTableEntryTrait for SymbolTableEntry<T>
-where 
+where
     T: SymbolTableField + 'static,
     T::Value: Clone + 'static,
 {
@@ -123,7 +126,7 @@ where
     fn get_value_mut(&mut self) -> &mut dyn Any {
         &mut self.value
     }
-    
+
     fn into_value(self: Box<Self>) -> Box<dyn Any> {
         self as Box<dyn Any>
     }
@@ -136,8 +139,10 @@ pub struct SymbolInfo {
 
 impl Clone for SymbolInfo {
     fn clone(&self) -> SymbolInfo {
-        let map = self.map.iter()
-            .map(|(type_id, boxed)| ( *type_id, SymbolTableEntryTrait::clone(&**boxed) ))
+        let map = self
+            .map
+            .iter()
+            .map(|(type_id, boxed)| (*type_id, SymbolTableEntryTrait::clone(&**boxed)))
             .collect();
 
         SymbolInfo { map }
@@ -151,7 +156,8 @@ impl SymbolInfo {
         let id = TypeId::of::<F>();
         // println!("Set ({}) {:?} = {:?}", F::NAME, id, value);
 
-        self.map.insert(id, Box::new(SymbolTableEntry::<F> { value }))
+        self.map
+            .insert(id, Box::new(SymbolTableEntry::<F> { value }))
             .and_then(|entry| entry.into_value().downcast().ok().map(|b| *b))
     }
 
@@ -171,9 +177,16 @@ impl SymbolInfo {
     where
         F: SymbolTableField + 'static,
     {
-        self.map.entry(TypeId::of::<F>())
-            .or_insert_with(|| Box::new(SymbolTableEntry::<F> { value: Default::default() }))
-            .get_value_mut().downcast_mut().unwrap()
+        self.map
+            .entry(TypeId::of::<F>())
+            .or_insert_with(|| {
+                Box::new(SymbolTableEntry::<F> {
+                    value: Default::default(),
+                })
+            })
+            .get_value_mut()
+            .downcast_mut()
+            .unwrap()
     }
 }
 
@@ -195,15 +208,20 @@ impl SymbolTable {
         }
     }
 
-    pub fn iter(&self) -> impl Iterator<Item=&SymbolInfo> {
+    pub fn iter(&self) -> impl Iterator<Item = &SymbolInfo> {
         self.inner.values()
     }
 
-    pub fn iter_mut(&mut self) -> impl Iterator<Item=&mut SymbolInfo> {
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut SymbolInfo> {
         self.inner.values_mut()
     }
 
-    pub(crate) fn define_symbol(&mut self, span: Span, label: String, value: i32) -> Result<SymbolId, SymbolId> {
+    pub(crate) fn define_symbol(
+        &mut self,
+        span: Span,
+        label: String,
+        value: i32,
+    ) -> Result<SymbolId, SymbolId> {
         if let Some(symbol) = self.inner.get_mut(&*label) {
             let id = *symbol.get::<SymbolId>();
 

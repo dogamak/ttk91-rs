@@ -1,17 +1,16 @@
 use ttk91::{
     bytecode,
+    emulator::{BalloonMemory, Emulator, TestIo},
     symbolic,
-    emulator::{Emulator, TestIo, BalloonMemory},
 };
 
-use slog::{Logger, Drain, o};
-use slog_term::{TermDecorator, FullFormat};
+use slog::{o, Drain, Logger};
+use slog_term::{FullFormat, TermDecorator};
 
 fn compile_program() -> bytecode::Program {
     let source_code = include_str!("procb.k91");
 
-    let program = symbolic::Program::parse(source_code)
-        .expect("could not parse the source code");
+    let program = symbolic::Program::parse(source_code).expect("could not parse the source code");
 
     println!("{:?}", program);
 
@@ -29,8 +28,8 @@ fn test_procb() {
 
     let mut io = TestIo::new();
     let memory = BalloonMemory::new(program);
-    let mut emulator = Emulator::with_logger(memory, &mut io, logger)
-        .expect("could not initialize the emulator");
+    let mut emulator =
+        Emulator::with_logger(memory, &mut io, logger).expect("could not initialize the emulator");
 
     while !emulator.halted {
         println!("{:?}", emulator.get_current_instruction());

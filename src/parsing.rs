@@ -1,15 +1,15 @@
-use std::ops::Range;
 use std::fmt;
 use std::fmt::Write;
+use std::ops::Range;
 
 use crate::error::{Error, ErrorContext};
 
 pub type Span = Range<usize>;
 
-pub type ParseError<K,T> = Error<ErrorKind<K,T>, Context>;
+pub type ParseError<K, T> = Error<ErrorKind<K, T>, Context>;
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum ErrorKind<K,T> {
+pub enum ErrorKind<K, T> {
     EndOfStream,
     TrailingInput,
     UnexpectedToken {
@@ -23,7 +23,7 @@ pub enum ErrorKind<K,T> {
     },
 }
 
-impl<K,T> fmt::Display for ErrorKind<K,T>
+impl<K, T> fmt::Display for ErrorKind<K, T>
 where
     K: fmt::Display,
     T: fmt::Display,
@@ -39,7 +39,7 @@ where
                     write!(expected_str, "{}", expected[0])?;
 
                     for i in 1..expected.len() {
-                        if i == expected.len()-1 {
+                        if i == expected.len() - 1 {
                             write!(expected_str, " or ")?;
                         } else {
                             write!(expected_str, ", ")?;
@@ -50,21 +50,21 @@ where
                 }
 
                 write!(f, "expected {}, got '{}'", expected_str, got)
-            },
+            }
             ErrorKind::Other { kind, .. } => write!(f, "{}", kind),
         }
     }
 }
 
-impl<K,T> ParseError<K,T> {
-    pub fn end_of_stream() -> ParseError<K,T> {
+impl<K, T> ParseError<K, T> {
+    pub fn end_of_stream() -> ParseError<K, T> {
         Error {
             kind: ErrorKind::EndOfStream,
             context: vec![],
         }
     }
 
-    pub fn unexpected(span: Span, got: T, expected: String) -> ParseError<K,T> {
+    pub fn unexpected(span: Span, got: T, expected: String) -> ParseError<K, T> {
         Error {
             kind: ErrorKind::UnexpectedToken {
                 span,
@@ -75,12 +75,9 @@ impl<K,T> ParseError<K,T> {
         }
     }
 
-    pub fn other(span: Span, kind: K) -> ParseError<K,T> {
+    pub fn other(span: Span, kind: K) -> ParseError<K, T> {
         Error {
-            kind: ErrorKind::Other {
-                span,
-                kind,
-            },
+            kind: ErrorKind::Other { span, kind },
             context: Vec::new(),
         }
     }
@@ -97,13 +94,8 @@ impl<K,T> ParseError<K,T> {
 
 #[derive(Debug, Clone)]
 pub enum Context {
-    Error {
-        message: String,
-    },
-    Suggestion {
-        span: Span,
-        message: String,
-    },
+    Error { message: String },
+    Suggestion { span: Span, message: String },
 }
 
 impl From<&str> for Context {
@@ -116,9 +108,7 @@ impl From<&str> for Context {
 
 impl From<String> for Context {
     fn from(message: String) -> Context {
-        Context::Error {
-            message: message,
-        }
+        Context::Error { message: message }
     }
 }
 
@@ -138,7 +128,10 @@ pub trait SeekStream: Iterator {
     fn at_offset(&self, offset: isize) -> Option<&Self::Item>;
 }
 
-impl<S> SeekStream for &mut S where S: SeekStream {
+impl<S> SeekStream for &mut S
+where
+    S: SeekStream,
+{
     fn offset(&self) -> usize {
         SeekStream::offset(*self)
     }
@@ -156,7 +149,7 @@ impl<S> SeekStream for &mut S where S: SeekStream {
     }
 }
 
-impl<I> SeekStream for &mut dyn SeekStream<Item=I> {
+impl<I> SeekStream for &mut dyn SeekStream<Item = I> {
     fn offset(&self) -> usize {
         SeekStream::offset(*self)
     }
@@ -180,7 +173,10 @@ pub struct BufferedStream<S: Iterator> {
     buffer: Vec<S::Item>,
 }
 
-impl<S> BufferedStream<S> where S: Iterator {
+impl<S> BufferedStream<S>
+where
+    S: Iterator,
+{
     pub fn reset(&mut self) {
         self.position = 0;
     }
@@ -229,7 +225,7 @@ where
                 self.position += 1;
                 self.buffer.push(item.clone());
                 Some(item)
-            },
+            }
             None => None,
         }
     }
@@ -250,10 +246,10 @@ where
     }
 
     fn seek_boundary(&self) -> Range<isize> {
-        let backwards = - (self.position as isize);
+        let backwards = -(self.position as isize);
         let forwards = (self.buffer.len() as isize) - (self.position as isize);
 
-        backwards .. forwards + 1
+        backwards..forwards + 1
     }
 
     fn at_offset(&self, offset: isize) -> Option<&Self::Item> {
@@ -268,7 +264,7 @@ where
 }
 
 pub trait Parser<T> {
-    type Stream: SeekStream<Item=(T, Span)>;
+    type Stream: SeekStream<Item = (T, Span)>;
 
     fn stream(&self) -> &Self::Stream;
     fn stream_mut(&mut self) -> &mut Self::Stream;
@@ -280,10 +276,8 @@ pub trait Parser<T> {
             Some((_, span)) => {
                 stream.seek(-1);
                 span.start
-            },
-            None => stream.at_offset(0)
-                .map(|(_, span)| span.end)
-                .unwrap_or(0)
+            }
+            None => stream.at_offset(0).map(|(_, span)| span.end).unwrap_or(0),
         }
     }
 
@@ -292,14 +286,14 @@ pub trait Parser<T> {
         stream.at_offset(-1).map(|t| (t.1).end).unwrap_or(0)
     }
 
-    fn apply<P,O,C>(&mut self, op: P) -> Result<O,ParseError<C,T>>
+    fn apply<P, O, C>(&mut self, op: P) -> Result<O, ParseError<C, T>>
     where
         Self: Sized,
-        P: Operation<Self,O,C,T>,
+        P: Operation<Self, O, C, T>,
         // P: FnOnce(&mut Self) -> Result<R, Error<C>>
     {
         let position = self.stream_mut().offset() as isize;
-        
+
         let result = op.call(self);
 
         let stream = self.stream_mut();
@@ -312,7 +306,7 @@ pub trait Parser<T> {
         result
     }
 
-    fn take_token<X>(&mut self, token: T) -> Result<T, ParseError<X,T>>
+    fn take_token<X>(&mut self, token: T) -> Result<T, ParseError<X, T>>
     where
         T: std::fmt::Display + PartialEq,
         Self: Sized,
@@ -320,7 +314,7 @@ pub trait Parser<T> {
         self.apply(take_token(token))
     }
 
-    fn assert_token<X>(&mut self, token: T) -> Result<(), ParseError<X,T>>
+    fn assert_token<X>(&mut self, token: T) -> Result<(), ParseError<X, T>>
     where
         T: std::fmt::Display + PartialEq,
         Self: Sized,
@@ -329,7 +323,10 @@ pub trait Parser<T> {
     }
 }
 
-impl<P,T> Parser<T> for &mut P where P: Parser<T> {
+impl<P, T> Parser<T> for &mut P
+where
+    P: Parser<T>,
+{
     type Stream = P::Stream;
 
     fn stream(&self) -> &Self::Stream {
@@ -341,27 +338,27 @@ impl<P,T> Parser<T> for &mut P where P: Parser<T> {
     }
 }
 
-pub trait Operation<Parser,Output,Kind,Token> {
-    fn call<'a>(self, parser: &'a mut Parser) -> Result<Output, ParseError<Kind,Token>>;
+pub trait Operation<Parser, Output, Kind, Token> {
+    fn call<'a>(self, parser: &'a mut Parser) -> Result<Output, ParseError<Kind, Token>>;
 }
 
-impl<F,Parser,Output,Kind,Token> Operation<Parser,Output,Kind,Token> for F
+impl<F, Parser, Output, Kind, Token> Operation<Parser, Output, Kind, Token> for F
 where
-    F: FnOnce(&mut Parser) -> Result<Output, ParseError<Kind,Token>>,
+    F: FnOnce(&mut Parser) -> Result<Output, ParseError<Kind, Token>>,
 {
-    fn call(self, parser: &mut Parser) -> Result<Output, ParseError<Kind,Token>> {
+    fn call(self, parser: &mut Parser) -> Result<Output, ParseError<Kind, Token>> {
         self(parser)
     }
-} 
+}
 
 pub struct AssertToken<T>(T);
 
-impl<P,K,T> Operation<P,(),K,T> for AssertToken<T>
+impl<P, K, T> Operation<P, (), K, T> for AssertToken<T>
 where
     P: Parser<T>,
     T: PartialEq + std::fmt::Display,
 {
-    fn call(self, parser: &mut P) -> Result<(), ParseError<K,T>> {
+    fn call(self, parser: &mut P) -> Result<(), ParseError<K, T>> {
         match parser.stream_mut().next() {
             Some((t, _)) if t == self.0 => Ok(()),
             Some((got, span)) => Err(Error {
@@ -386,12 +383,12 @@ pub fn assert_token<T>(token: T) -> AssertToken<T> {
 
 pub struct TakeToken<T>(T);
 
-impl<P,T,X> Operation<P,T,X,T> for TakeToken<T>
+impl<P, T, X> Operation<P, T, X, T> for TakeToken<T>
 where
     P: Parser<T>,
     T: PartialEq + std::fmt::Display,
 {
-    fn call(self, parser: &mut P) -> Result<T, ParseError<X,T>> {
+    fn call(self, parser: &mut P) -> Result<T, ParseError<X, T>> {
         match parser.stream_mut().next() {
             Some((t, _)) if t == self.0 => Ok(t),
             Some((got, span)) => Err(Error {
@@ -429,7 +426,7 @@ pub fn take_token<T>(token: T) -> TakeToken<T> {
         P: FnOnce(&mut dyn SeekStream<Item=I>) -> Result<R, Error<C>>
     {
         let position = self.offset() as isize;
-        
+
         let result = parser(*self);
 
         if result.is_err() {
@@ -448,7 +445,7 @@ pub fn take_token<T>(token: T) -> TakeToken<T> {
         P: FnOnce(&mut dyn SeekStream<Item=S::Item>) -> Result<R, Error<C>>
     {
         let position = self.offset() as isize;
-        
+
         let result = parser(self);
 
         if result.is_err() {
@@ -471,17 +468,19 @@ pub fn take_token<T>(token: T) -> TakeToken<T> {
     }
 }*/
 
-pub enum Either<L,R> {
+pub enum Either<L, R> {
     Left(L),
     Right(R),
 }
 
-pub fn either<P1,P2,R1,R2,K,P,T>(parser1: P1, parser2: P2)
-    -> impl FnOnce(&mut P) -> Result<Either<R1,R2>, ParseError<K,T>>
+pub fn either<P1, P2, R1, R2, K, P, T>(
+    parser1: P1,
+    parser2: P2,
+) -> impl FnOnce(&mut P) -> Result<Either<R1, R2>, ParseError<K, T>>
 where
     P: Parser<T>,
-    P1: Operation<P,R1,K,T>,
-    P2: Operation<P,R2,K,T>,
+    P1: Operation<P, R1, K, T>,
+    P2: Operation<P, R2, K, T>,
     T: Clone,
 {
     move |parser| {
@@ -503,12 +502,22 @@ where
 
                         let mut got = None;
 
-                        if let ErrorKind::UnexpectedToken { expected: e, got: g, .. } = &err.kind {
+                        if let ErrorKind::UnexpectedToken {
+                            expected: e,
+                            got: g,
+                            ..
+                        } = &err.kind
+                        {
                             expected.extend(e.iter().cloned());
                             got = Some(g);
                         }
 
-                        if let ErrorKind::UnexpectedToken { expected: e, got: g, .. } = &err2.kind {
+                        if let ErrorKind::UnexpectedToken {
+                            expected: e,
+                            got: g,
+                            ..
+                        } = &err2.kind
+                        {
                             expected.extend(e.iter().cloned());
                             got = Some(g);
                         }
@@ -531,7 +540,7 @@ where
                             false => Err(err),
                         }
                     }
-                },
+                }
             },
         }
     }

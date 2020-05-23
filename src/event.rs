@@ -51,7 +51,10 @@ pub trait EventListener {
     fn event(&mut self, event: &Event);
 }
 
-impl<F> EventListener for F where F: Fn(&Event) {
+impl<F> EventListener for F
+where
+    F: Fn(&Event),
+{
     fn event(&mut self, event: &Event) {
         self(event)
     }
@@ -69,7 +72,8 @@ impl EventDispatcher {
     }
 
     pub fn add_listener<L: EventListener + 'static>(&mut self, listener: L) {
-        self.listeners.push(Box::new(listener) as Box<dyn EventListener>)
+        self.listeners
+            .push(Box::new(listener) as Box<dyn EventListener>)
     }
 
     pub fn dispatch(&mut self, event: Event) {
@@ -78,4 +82,3 @@ impl EventDispatcher {
         }
     }
 }
-

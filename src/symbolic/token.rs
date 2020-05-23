@@ -1,13 +1,8 @@
-use logos::{Logos, Lexer};
+use logos::{Lexer, Logos};
 
 use std::fmt;
 
-use super::ast::{
-    Register,
-    RealOpCode,
-    PseudoOpCode,
-    JumpCondition,
-};
+use super::ast::{JumpCondition, PseudoOpCode, RealOpCode, Register};
 
 #[derive(Logos, Debug, PartialEq, Clone)]
 pub enum Token<'a> {
@@ -47,7 +42,9 @@ pub enum Token<'a> {
     Literal(i32),
 }
 
-fn pseudo_operator_callback<'a>(lex: &mut Lexer<'a, Token<'a>>) -> std::result::Result<PseudoOpCode, ()> {
+fn pseudo_operator_callback<'a>(
+    lex: &mut Lexer<'a, Token<'a>>,
+) -> std::result::Result<PseudoOpCode, ()> {
     match lex.slice().to_uppercase().as_ref() {
         "DC" => Ok(PseudoOpCode::DC),
         "DS" => Ok(PseudoOpCode::DS),
@@ -58,50 +55,91 @@ fn pseudo_operator_callback<'a>(lex: &mut Lexer<'a, Token<'a>>) -> std::result::
 
 fn operator_callback<'a>(lex: &mut Lexer<'a, Token<'a>>) -> std::result::Result<RealOpCode, ()> {
     let opcode = match lex.slice().to_uppercase().as_ref() {
-        "NOP"   => RealOpCode::NoOperation,
+        "NOP" => RealOpCode::NoOperation,
         "STORE" => RealOpCode::Store,
-        "LOAD"  => RealOpCode::Load,
-        "IN"    => RealOpCode::In,
-        "OUT"   => RealOpCode::Out,
-        "ADD"   => RealOpCode::Add,
-        "SUB"   => RealOpCode::Subtract,
-        "MUL"   => RealOpCode::Multiply,
-        "DIV"   => RealOpCode::Divide,
-        "MOD"   => RealOpCode::Modulo,
-        "AND"   => RealOpCode::And,
-        "OR"    => RealOpCode::Or,
-        "XOR"   => RealOpCode::Xor,
-        "SHL"   => RealOpCode::ShiftLeft,
-        "SHR"   => RealOpCode::ShiftRight,
-        "NOT"   => RealOpCode::Not,
-        "COMP"  => RealOpCode::Compare,
-        "CALL"  => RealOpCode::Call,
-        "EXIT"  => RealOpCode::Exit,
-        "PUSH"  => RealOpCode::Push,
-        "POP"   => RealOpCode::Pop,
+        "LOAD" => RealOpCode::Load,
+        "IN" => RealOpCode::In,
+        "OUT" => RealOpCode::Out,
+        "ADD" => RealOpCode::Add,
+        "SUB" => RealOpCode::Subtract,
+        "MUL" => RealOpCode::Multiply,
+        "DIV" => RealOpCode::Divide,
+        "MOD" => RealOpCode::Modulo,
+        "AND" => RealOpCode::And,
+        "OR" => RealOpCode::Or,
+        "XOR" => RealOpCode::Xor,
+        "SHL" => RealOpCode::ShiftLeft,
+        "SHR" => RealOpCode::ShiftRight,
+        "NOT" => RealOpCode::Not,
+        "COMP" => RealOpCode::Compare,
+        "CALL" => RealOpCode::Call,
+        "EXIT" => RealOpCode::Exit,
+        "PUSH" => RealOpCode::Push,
+        "POP" => RealOpCode::Pop,
         "PUSHR" => RealOpCode::PushRegisters,
-        "POPR"  => RealOpCode::PopRegisters,
-        "SVC"   => RealOpCode::SupervisorCall,
-        "JUMP"  => RealOpCode::Jump { negated: false, condition: JumpCondition::Unconditional },
-        "JZER"  => RealOpCode::Jump { negated: false, condition: JumpCondition::Zero },
-        "JNZER" => RealOpCode::Jump { negated: true,  condition: JumpCondition::Zero },
-        "JPOS"  => RealOpCode::Jump { negated: false, condition: JumpCondition::Positive },
-        "JNPOS" => RealOpCode::Jump { negated: true,  condition: JumpCondition::Positive },
-        "JNEG"  => RealOpCode::Jump { negated: false, condition: JumpCondition::Negative },
-        "JNNEG" => RealOpCode::Jump { negated: true,  condition: JumpCondition::Negative },
-        "JEQU"  => RealOpCode::Jump { negated: false, condition: JumpCondition::Equal },
-        "JNEQU" => RealOpCode::Jump { negated: true,  condition: JumpCondition::Equal },
-        "JLES"  => RealOpCode::Jump { negated: false, condition: JumpCondition::Less },
-        "JNLES" => RealOpCode::Jump { negated: true,  condition: JumpCondition::Less },
-        "JGRE"  => RealOpCode::Jump { negated: false, condition: JumpCondition::Greater },
-        "JNGRE" => RealOpCode::Jump { negated: true,  condition: JumpCondition::Greater },
+        "POPR" => RealOpCode::PopRegisters,
+        "SVC" => RealOpCode::SupervisorCall,
+        "JUMP" => RealOpCode::Jump {
+            negated: false,
+            condition: JumpCondition::Unconditional,
+        },
+        "JZER" => RealOpCode::Jump {
+            negated: false,
+            condition: JumpCondition::Zero,
+        },
+        "JNZER" => RealOpCode::Jump {
+            negated: true,
+            condition: JumpCondition::Zero,
+        },
+        "JPOS" => RealOpCode::Jump {
+            negated: false,
+            condition: JumpCondition::Positive,
+        },
+        "JNPOS" => RealOpCode::Jump {
+            negated: true,
+            condition: JumpCondition::Positive,
+        },
+        "JNEG" => RealOpCode::Jump {
+            negated: false,
+            condition: JumpCondition::Negative,
+        },
+        "JNNEG" => RealOpCode::Jump {
+            negated: true,
+            condition: JumpCondition::Negative,
+        },
+        "JEQU" => RealOpCode::Jump {
+            negated: false,
+            condition: JumpCondition::Equal,
+        },
+        "JNEQU" => RealOpCode::Jump {
+            negated: true,
+            condition: JumpCondition::Equal,
+        },
+        "JLES" => RealOpCode::Jump {
+            negated: false,
+            condition: JumpCondition::Less,
+        },
+        "JNLES" => RealOpCode::Jump {
+            negated: true,
+            condition: JumpCondition::Less,
+        },
+        "JGRE" => RealOpCode::Jump {
+            negated: false,
+            condition: JumpCondition::Greater,
+        },
+        "JNGRE" => RealOpCode::Jump {
+            negated: true,
+            condition: JumpCondition::Greater,
+        },
         _ => return Err(()),
     };
 
     Ok(opcode)
 }
 
-fn literal_callback<'a>(lex: &mut Lexer<'a, Token<'a>>) -> std::result::Result<i32, std::num::ParseIntError> {
+fn literal_callback<'a>(
+    lex: &mut Lexer<'a, Token<'a>>,
+) -> std::result::Result<i32, std::num::ParseIntError> {
     lex.slice().parse()
 }
 
@@ -114,7 +152,7 @@ impl<'t> fmt::Display for Token<'t> {
             Token::IndexBegin => write!(f, "("),
             Token::IndexEnd => write!(f, ")"),
             Token::ParameterSeparator => write!(f, ","),
-            Token::ImmediateModifier => write!(f, "="), 
+            Token::ImmediateModifier => write!(f, "="),
             Token::IndirectModifier => write!(f, "@"),
             Token::Register(reg) => write!(f, "{}", reg),
             Token::RealOperator(op) => write!(f, "{}", op),

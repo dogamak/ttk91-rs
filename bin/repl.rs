@@ -1,31 +1,20 @@
-use std::sync::{Arc, Mutex, PoisonError};
 use std::convert::TryFrom;
 use std::io::Write;
-use std::str::FromStr;
 use std::ops::RangeInclusive;
+use std::str::FromStr;
+use std::sync::{Arc, Mutex, PoisonError};
 
-use clap::{App, ArgMatches, Arg};
-use slog::{Drain, Logger, Discard, o};
-use slog_term::{TermDecorator, FullFormat};
+use clap::{App, Arg, ArgMatches};
+use slog::{o, Discard, Drain, Logger};
+use slog_term::{FullFormat, TermDecorator};
 
 use ttk91::{
-    emulator::{Memory, Emulator, StdIo},
+    emulator::{Emulator, Memory, StdIo},
     instruction::{Instruction, Register},
-    symbol_table::{
-        Label,
-        Value,
-        SymbolTable,
-    },
+    symbol_table::{Label, SymbolTable, Value},
     symbolic::{
-        parser::{
-            Parser,
-            ParseError,
-        },
-        program::{
-            SymbolicInstruction,
-            RelocationKind,
-            validate_instruction,
-        }
+        parser::{ParseError, Parser},
+        program::{validate_instruction, RelocationKind, SymbolicInstruction},
     },
 };
 
@@ -48,7 +37,7 @@ enum MemoryError {
     InvalidInstruction,
 }
 
-impl<'a,T> From<PoisonError<T>> for MemoryError {
+impl<'a, T> From<PoisonError<T>> for MemoryError {
     fn from(_: PoisonError<T>) -> MemoryError {
         MemoryError::ConcurrencyError
     }
@@ -57,8 +46,9 @@ impl<'a,T> From<PoisonError<T>> for MemoryError {
 impl std::fmt::Display for MemoryError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            MemoryError::InvalidAddress { address } =>
-                write!(f, "invalid address: 0x{:x}", address),
+            MemoryError::InvalidAddress { address } => {
+                write!(f, "invalid address: 0x{:x}", address)
+            }
             MemoryError::OperationNotAllwed { address, operation } => {
                 let operation = match operation {
                     MemoryOperation::Read => "readable",
@@ -66,7 +56,7 @@ impl std::fmt::Display for MemoryError {
                 };
 
                 write!(f, "address 0x{:x} not {}", address, operation)
-            },
+            }
             MemoryError::ConcurrencyError => write!(f, "concurrency error"),
             MemoryError::InvalidInstruction => write!(f, "invalid instruciton"),
         }
@@ -100,19 +90,21 @@ impl SharedMemory {
 
         guard.push(ins.into());
 
-        let mut addr = (guard.len()-1) as u16;
+        let mut addr = (guard.len() - 1) as u16;
         addr |= 0x8000;
 
         Ok(addr)
     }
 
     fn push_data(&self, value: i32) -> Result<u16, MemoryError> {
-        let mut guard = self.data.lock()
+        let mut guard = self
+            .data
+            .lock()
             .map_err(|_| MemoryError::ConcurrencyError)?;
 
         guard.push(value);
 
-        Ok((guard.len()-1) as u16)
+        Ok((guard.len() - 1) as u16)
     }
 }
 
@@ -123,11 +115,12 @@ impl Memory for SharedMemory {
 
     fn stack_address_range(&self) -> Result<RangeInclusive<u16>, Self::Error> {
         let size = self.stack.lock()?.len() as u16;
-        Ok((STACK_BASE_ADDRESS-size)..=(STACK_BASE_ADDRESS))
+        Ok((STACK_BASE_ADDRESS - size)..=(STACK_BASE_ADDRESS))
     }
 
     fn grow_stack(&mut self, amount: u16) -> Result<(), Self::Error> {
-        self.stack.lock()?
+        self.stack
+            .lock()?
             .extend(std::iter::repeat(0).take(amount as usize));
 
         Ok(())
@@ -145,16 +138,12 @@ impl Memory for SharedMemory {
 
         match self.instructions.lock() {
             Err(_) => Err(MemoryError::ConcurrencyError),
-            Ok(guard) => {
-                match guard.get(addr as usize) {
-                    None => Err(MemoryError::InvalidAddress { address: addr }),
-                    Some(word) => {
-                        match Instruction::try_from(*word) {
-                            Err(_) => Err(MemoryError::InvalidInstruction),
-                            Ok(ins) => Ok(ins),
-                        }
-                    },
-                }
+            Ok(guard) => match guard.get(addr as usize) {
+                None => Err(MemoryError::InvalidAddress { address: addr }),
+                Some(word) => match Instruction::try_from(*word) {
+                    Err(_) => Err(MemoryError::InvalidInstruction),
+                    Ok(ins) => Ok(ins),
+                },
             },
         }
     }
@@ -172,13 +161,15 @@ impl Memory for SharedMemory {
         if stack.contains(&addr) {
             let address = stack.end() - (addr & 0x7FFF);
             let guard = self.stack.lock()?;
-            guard.get(address as usize)
+            guard
+                .get(address as usize)
                 .copied()
                 .ok_or(MemoryError::InvalidAddress { address })
         } else {
             let address = addr & 0x7FFF;
             let guard = self.data.lock()?;
-            guard.get(address as usize)
+            guard
+                .get(address as usize)
                 .copied()
                 .ok_or(MemoryError::InvalidAddress { address })
         }
@@ -221,7 +212,6 @@ impl ::std::fmt::Display for CommandError {
         }
     }
 }
-
 
 #[derive(Debug)]
 enum Error<'a> {
@@ -300,7 +290,7 @@ impl REPL {
     }
 
     fn handle_command<'a>(&mut self, command: &'a str) -> Result<(), Error<'a>> {
-        let command = &command[..command.len()-1];
+        let command = &command[..command.len() - 1];
 
         let cmd = command
             .split(char::is_whitespace)
@@ -315,22 +305,29 @@ impl REPL {
                 println!("Available commands:");
                 println!("  .symbols                             List all symbols and their values and addresses");
                 println!("  .s <symbol>, .symbol <symbol>        Print the address and value of a symbol");
-                println!("  .regs, .registers                    List all registers and their values");
+                println!(
+                    "  .regs, .registers                    List all registers and their values"
+                );
                 println!("  .pi <ins>, .print_instruction <ins>  Print the parsed instruction");
-            },
+            }
             ("s", [symbol]) | ("symbol", [symbol]) => {
-                let addr = self.symbol_table.get_symbol_by_label(symbol)
+                let addr = self
+                    .symbol_table
+                    .get_symbol_by_label(symbol)
                     .and_then(|sym| sym.get::<Value>().into_owned())
                     .ok_or(Error::UnknownSymbol(symbol.to_string()))?;
 
                 let value = self.memory.get_data(addr as u16)?;
 
                 println!("Symbol '{}' @ {:x} = {}", symbol, addr, value);
-            },
+            }
             ("symbols", _) => {
                 for symbol in self.symbol_table.iter() {
                     let addr = symbol.get::<Value>().into_owned().unwrap_or(0);
-                    let label = symbol.get::<Label>().into_owned().unwrap_or("<UNKNOWN>".to_string());
+                    let label = symbol
+                        .get::<Label>()
+                        .into_owned()
+                        .unwrap_or("<UNKNOWN>".to_string());
 
                     let value = match self.memory.get_data(addr as u16) {
                         Ok(value) => value.to_string(),
@@ -339,12 +336,12 @@ impl REPL {
 
                     println!("Symbol '{}' @ {:x} = {}", label, addr, value);
                 }
-            },
+            }
             ("regs", _) | ("registers", _) => {
                 for i in 0..8 {
                     println!("Register R{} = {}", i, self.emulator.context.r[i]);
                 }
-            },
+            }
             ("reg", [register]) | ("register", [register]) => {
                 let register = match Register::from_str(register) {
                     Ok(register) => register,
@@ -357,7 +354,7 @@ impl REPL {
                 let value = self.emulator.context.r[register.index() as usize];
 
                 println!("Register {} = {}", register, value);
-            },
+            }
             ("print_instruction", _) | ("pi", _) => {
                 let ins = Parser::parse_instruction(rest)?;
                 let ins = validate_instruction(ins)?;
@@ -365,37 +362,41 @@ impl REPL {
                 match ins {
                     SymbolicInstruction::Pseudo(ins) => {
                         println!("{:?}", SymbolicInstruction::Pseudo(ins));
-                    },
+                    }
                     SymbolicInstruction::Real(sins) => {
                         let mut ins: Instruction = sins.clone().into();
 
                         match sins.relocation_symbol() {
-                            None => {},
+                            None => {}
                             Some(entry) => {
-                                let addr = self.symbol_table.get_symbol(entry.symbol)
+                                let addr = self
+                                    .symbol_table
+                                    .get_symbol(entry.symbol)
                                     .get::<Value>()
                                     .into_owned();
 
                                 if let Some(addr) = addr {
                                     let imm = match entry.kind {
                                         RelocationKind::Address => addr,
-                                        RelocationKind::Value => self.memory.get_data(addr as u16)?,
+                                        RelocationKind::Value => {
+                                            self.memory.get_data(addr as u16)?
+                                        }
                                     };
 
                                     ins.immediate = imm as u16;
                                 } else {
                                     println!("NOTE: Unknown symbol");
                                 }
-                            },
+                            }
                         }
 
                         println!("{:?}", ins);
-                    },
+                    }
                 }
-            },
+            }
             _ => (),
         }
-        
+
         Ok(())
     }
 
@@ -403,21 +404,24 @@ impl REPL {
         println!("Type .help for a list of all available commands or start typing instruciton");
 
         loop {
-            print!("0x{:x}> ", (self.memory.instructions.lock().unwrap().len() as u16) | 0x8000);
+            print!(
+                "0x{:x}> ",
+                (self.memory.instructions.lock().unwrap().len() as u16) | 0x8000
+            );
             let _ = ::std::io::stdout().flush();
-            
+
             let mut input = String::new();
             let _ = ::std::io::stdin().read_line(&mut input);
 
             match self.handle_line(&input) {
-                Ok(()) => {},
+                Ok(()) => {}
                 Err(err) => {
                     if let Error::ParseError(err) = err {
                         eprintln!("Error: {}", err);
                     } else {
                         eprintln!("Error: {}", err);
                     }
-                },
+                }
             }
         }
     }
@@ -428,7 +432,7 @@ impl REPL {
             return Ok(());
         }
 
-        let (label, ins) = Parser::from_str(&input[..input.len()-1])
+        let (label, ins) = Parser::from_str(&input[..input.len() - 1])
             .with_symbol_table(&mut self.symbol_table)
             .parse_line()?;
 
@@ -439,19 +443,24 @@ impl REPL {
                 let addr = self.memory.push_data(ins.value)?;
 
                 if let Some(symbol) = label {
-                    let symbol =self.symbol_table.get_symbol_mut(symbol);
+                    let symbol = self.symbol_table.get_symbol_mut(symbol);
                     symbol.set::<Value>(Some(addr as i32));
-                    let label = symbol.get::<Label>().into_owned().unwrap_or("UNKNOWN".into());
+                    let label = symbol
+                        .get::<Label>()
+                        .into_owned()
+                        .unwrap_or("UNKNOWN".into());
                     println!("Symbol {} at address {}", label, addr);
                 }
-            },
+            }
             SymbolicInstruction::Real(sins) => {
                 let mut ins: Instruction = sins.clone().into();
 
                 match sins.relocation_symbol() {
-                    None => {},
+                    None => {}
                     Some(entry) => {
-                        let addr = self.symbol_table.get_symbol(entry.symbol)
+                        let addr = self
+                            .symbol_table
+                            .get_symbol(entry.symbol)
                             .get::<Value>()
                             .expect("expected a symbol to have an address");
 
@@ -461,25 +470,28 @@ impl REPL {
                         };
 
                         ins.immediate = imm;
-                    },
+                    }
                 }
 
                 let addr = self.memory.push_instruction(ins.clone())?;
 
                 if let Some(symbol) = label {
-                    let symbol =self.symbol_table.get_symbol_mut(symbol);
+                    let symbol = self.symbol_table.get_symbol_mut(symbol);
                     symbol.set::<Value>(Some(addr as i32));
-                    let label = symbol.get::<Label>().into_owned().unwrap_or("UNKNOWN".into());
+                    let label = symbol
+                        .get::<Label>()
+                        .into_owned()
+                        .unwrap_or("UNKNOWN".into());
                     println!("Symbol {} at address {}", label, addr);
                 }
 
-                while self.emulator.context.pc < self.memory.code_tail()?  {
+                while self.emulator.context.pc < self.memory.code_tail()? {
                     let ins = self.memory.get_instruction(self.emulator.context.pc)?;
                     self.emulator.context.pc += 1;
 
                     self.emulator.emulate_instruction(&ins)?;
                 }
-            },
+            }
         }
 
         Ok(())
@@ -491,10 +503,12 @@ fn parse_args() -> ArgMatches<'static> {
         .version(env!("CARGO_PKG_VERSION"))
         .author("Mitja Karhusaari <mitja@karhusaari>")
         .about("Read-Evaluate-Print-Loop utility for TTK91")
-        .arg(Arg::with_name("verbose")
-             .help("Enables verbose logging")
-             .long("verbose")
-             .short("v"))
+        .arg(
+            Arg::with_name("verbose")
+                .help("Enables verbose logging")
+                .long("verbose")
+                .short("v"),
+        )
         .get_matches()
 }
 

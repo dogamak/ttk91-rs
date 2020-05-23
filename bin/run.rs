@@ -1,12 +1,12 @@
 use ttk91::{
     bytecode,
-    symbolic,
     emulator::{Emulator, StdIo},
+    symbolic,
 };
 
 use clap::{App, Arg, ArgMatches};
-use slog::{Logger, Drain, o};
-use slog_term::{TermDecorator, FullFormat};
+use slog::{o, Drain, Logger};
+use slog_term::{FullFormat, TermDecorator};
 
 enum Error {
     Parse,
@@ -37,15 +37,19 @@ fn parse_arguments() -> ArgMatches<'static> {
         .version(env!("CARGO_PKG_VERSION"))
         .author("Mitja Karhusaari <mitja@karhusaari.me>")
         .about("Utility for compiling and executing TTK91 programs")
-        .arg(Arg::with_name("source")
-             .help("File containing assembly source or bytecode")
-             .value_name("SOURCE")
-             .required(true)
-             .index(1))
-        .arg(Arg::with_name("verbose")
-             .help("Enables verbose logging")
-             .long("verbose")
-             .short("v"))
+        .arg(
+            Arg::with_name("source")
+                .help("File containing assembly source or bytecode")
+                .value_name("SOURCE")
+                .required(true)
+                .index(1),
+        )
+        .arg(
+            Arg::with_name("verbose")
+                .help("Enables verbose logging")
+                .long("verbose")
+                .short("v"),
+        )
         .get_matches()
 }
 
@@ -96,11 +100,10 @@ fn run(file_path: &str, logger: Option<Logger>) -> Result<(), Error> {
         }
     }
 
-    let mut emulator = Emulator::with_logger(program.to_words(), StdIo, logger)
-        .map_err(|_| Error::Execution)?;
+    let mut emulator =
+        Emulator::with_logger(program.to_words(), StdIo, logger).map_err(|_| Error::Execution)?;
 
-    emulator.run()
-        .map_err(|_| Error::Execution)?;
+    emulator.run().map_err(|_| Error::Execution)?;
 
     Ok(())
 }

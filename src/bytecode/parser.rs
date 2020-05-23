@@ -2,33 +2,18 @@ use logos::Logos;
 
 use crate::error::ResultExt;
 
-use crate::parsing::{
-    Span,
-    Parser as ParserTrait,
-    BufferedStream,
-    ParseError,
-    Either,
-    either,
-};
+use crate::parsing::{either, BufferedStream, Either, ParseError, Parser as ParserTrait, Span};
 
-use super::token::{
-    Token,
-    Section,
-};
+use super::token::{Section, Token};
 
-use crate::symbol_table::{SymbolTable, Value, Label};
-use super::program::{Segment, Program};
+use super::program::{Program, Segment};
+use crate::symbol_table::{Label, SymbolTable, Value};
 
 #[derive(Debug)]
 pub enum Context {
     RepeatedSection,
-    SectionSizeConflict {
-        specified: usize,
-        got: usize,
-    },
-    Other {
-        message: String,
-    },
+    SectionSizeConflict { specified: usize, got: usize },
+    Other { message: String },
 }
 
 impl From<&str> for Context {
@@ -41,9 +26,7 @@ impl From<&str> for Context {
 
 impl From<String> for Context {
     fn from(s: String) -> Context {
-        Context::Other {
-            message: s,
-        }
+        Context::Other { message: s }
     }
 }
 
@@ -86,7 +69,7 @@ enum SectionContent {
     SymbolTable(SymbolTable),
     Code(Segment),
     Data(Segment),
-} 
+}
 
 impl SectionContent {
     fn kind(&self) -> Section {
@@ -103,11 +86,9 @@ impl<'t> Parser<'t> {
         let lex = Token::lexer(input);
         let stream = BufferedStream::from(lex.spanned());
 
-        Parser {
-            stream,
-        }
+        Parser { stream }
     }
-    
+
     fn take_number(&mut self) -> Result<'t, i32> {
         match self.stream_mut().next() {
             Some((Token::Number(num), _)) => Ok(num),
@@ -116,15 +97,20 @@ impl<'t> Parser<'t> {
         }
     }
 
-    fn take_section_with_header(header: Section) -> impl FnOnce(&mut Parser<'t>) -> Result<'t, Segment> {
+    fn take_section_with_header(
+        header: Section,
+    ) -> impl FnOnce(&mut Parser<'t>) -> Result<'t, Segment> {
         move |parser| {
-            parser.assert_token(Token::Section(header))
+            parser
+                .assert_token(Token::Section(header))
                 .context("Expected ___data___ header")?;
 
             let header_start = parser.boundary_right();
-            let start = parser.apply(Self::take_number)
+            let start = parser
+                .apply(Self::take_number)
                 .context("expected section start address")?;
-            let end = parser.apply(Self::take_number)
+            let end = parser
+                .apply(Self::take_number)
                 .context("expected section end address")?;
             let header_end = parser.boundary_left();
 
@@ -135,13 +121,16 @@ impl<'t> Parser<'t> {
             }
 
             if content.len() != (end - start + 1) as usize {
-                let span = header_start .. header_end;
+                let span = header_start..header_end;
 
-                return Err(Error::other(span.clone(), ErrorKind::SectionSizeConflict {
-                    span,
-                    specified: (end - start + 1) as usize,
-                    got: content.len(),
-                }));
+                return Err(Error::other(
+                    span.clone(),
+                    ErrorKind::SectionSizeConflict {
+                        span,
+                        specified: (end - start + 1) as usize,
+                        got: content.len(),
+                    },
+                ));
             }
 
             Ok(Segment {
@@ -208,15 +197,20 @@ impl<'t> Parser<'t> {
             let start = parser.boundary_right();
 
             match parser.apply(Self::take_section)? {
-                SectionContent::SymbolTable(section) if symbol_table.is_none() => symbol_table = Some(section),
+                SectionContent::SymbolTable(section) if symbol_table.is_none() => {
+                    symbol_table = Some(section)
+                }
                 SectionContent::Code(section) if code.is_none() => code = Some(section),
                 SectionContent::Data(section) if data.is_none() => data = Some(section),
                 section => {
                     let end = parser.boundary_left();
 
-                    return Err(Error::other(start..end, ErrorKind::RepeatedSection {
-                        kind: section.kind(),
-                    }));
+                    return Err(Error::other(
+                        start..end,
+                        ErrorKind::RepeatedSection {
+                            kind: section.kind(),
+                        },
+                    ));
                 }
             }
         }

@@ -45,11 +45,16 @@ impl<Kind, Context> Error<Kind, Context> {
 }
 
 pub trait ResultExt<C> {
-    fn context<T>(self, ctx: T) -> Self where T: Into<C>;
+    fn context<T>(self, ctx: T) -> Self
+    where
+        T: Into<C>;
 }
 
-impl<R,K,C> ResultExt<C> for Result<R, Error<K,C>> {
-    fn context<T>(mut self, ctx: T) -> Self where T: Into<C> {
+impl<R, K, C> ResultExt<C> for Result<R, Error<K, C>> {
+    fn context<T>(mut self, ctx: T) -> Self
+    where
+        T: Into<C>,
+    {
         if let Err(ref mut err) = self {
             err.context.push(ctx.into());
         }

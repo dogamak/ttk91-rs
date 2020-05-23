@@ -1,14 +1,13 @@
 //! [Emulator] for executing [bytecode programs](crate::bytecode::program::Program).
 
-use std::convert::TryInto;
 use std::cmp::Ordering;
+use std::convert::TryInto;
 use std::io::Read;
 
-use crate::instruction::{Instruction, OpCode, Mode, JumpCondition, Register};
-use crate::event::{Event, EventListener, EventDispatcher};
+use crate::event::{Event, EventDispatcher, EventListener};
+use crate::instruction::{Instruction, JumpCondition, Mode, OpCode, Register};
 
-use slog::{Logger, error, trace, debug, o};
-
+use slog::{debug, error, o, trace, Logger};
 
 /// Contains the execution environment of the TTK91 processor.
 #[derive(Debug, Clone, Default)]
@@ -147,9 +146,7 @@ impl Memory for Vec<i32> {
     }
 
     fn get_data(&mut self, addr: u16) -> Result<i32, Self::Error> {
-        self.get(addr as usize)
-            .copied()
-            .ok_or(())
+        self.get(addr as usize).copied().ok_or(())
     }
 
     fn set_data(&mut self, addr: u16, data: i32) -> Result<(), ()> {
@@ -177,9 +174,10 @@ struct InstructionEmulationContext<'e, 'i, M, IO> {
     logger: Logger,
 }
 
-impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
-    where M: Memory,
-          IO: InputOutput,
+impl<'e, 'i, M, IO> InstructionEmulationContext<'e, 'i, M, IO>
+where
+    M: Memory,
+    IO: InputOutput,
 {
     fn dispatch(&mut self, event: Event) {
         self.emulator.dispatcher.dispatch(event);
@@ -248,14 +246,18 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
     fn second_operand(&mut self) -> Result<i32, M::Error> {
         use Mode::*;
 
-        match (self.instruction.mode, self.instruction.immediate, self.instruction.index_register) {
+        match (
+            self.instruction.mode,
+            self.instruction.immediate,
+            self.instruction.index_register,
+        ) {
             // Symbolic: =1234
             (Immediate, imm, _reg) => {
                 trace!(self.logger, "resolving second operand";
                        "mode" => "immediate",
                        "value" => imm);
                 Ok(imm as i32)
-            },
+            }
 
             // Symbolic: R2
             (Direct, 0, reg) => {
@@ -267,7 +269,7 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
                        "value" => value);
 
                 Ok(value)
-            },
+            }
 
             // Symbolic: var(R2)
             (Direct, imm, reg) => {
@@ -281,7 +283,7 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
                        "value" => value);
 
                 Ok(value)
-            },
+            }
 
             // Symbolic: @R2
             (Indirect, 0, reg) => {
@@ -294,7 +296,7 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
                        "value" => value);
 
                 Ok(value)
-            },
+            }
 
             // Symbolic: @var(R2)
             (Indirect, imm, reg) => {
@@ -310,31 +312,35 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
                        "value" => value);
 
                 Ok(value)
-            },
+            }
         }
     }
 
     fn set_second_operand(&mut self, value: i32) -> Result<(), M::Error> {
         use Mode::*;
 
-        match (self.instruction.mode, self.instruction.immediate, self.instruction.index_register) {
+        match (
+            self.instruction.mode,
+            self.instruction.immediate,
+            self.instruction.index_register,
+        ) {
             (Immediate, _, _) => panic!("No such thing as a store to an immediate value!"),
             (Direct, 0, reg) => {
                 self.set_register_value(reg, value);
-            },
+            }
             (Direct, addr, reg) => {
                 let index = self.get_register_value(reg) as u16;
                 self.write_data(addr + index, value)?;
-            },
+            }
             (Indirect, 0, reg) => {
                 let addr = self.emulator.context.r[reg.index()];
                 self.write_data(addr as u16, value)?;
-            },
+            }
             (Indirect, addr, reg) => {
                 let addr = self.read_data(addr)? as u16;
                 let index = self.get_register_value(reg) as u16;
                 self.write_data(addr + index, value)?;
-            },
+            }
         }
 
         Ok(())
@@ -386,12 +392,12 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
             OpCode::Load => {
                 let op2 = self.second_operand()?;
                 self.set_first_operand(op2);
-            },
+            }
             OpCode::Store => {
                 // Ignore addressing modes, STORE is a special case.
                 let op1 = self.first_operand();
                 self.write_data(self.instruction.immediate, op1)?;
-            },
+            }
             OpCode::In => {
                 let device = self.second_operand()?;
                 debug!(self.logger, "waiting input from device {}", device;
@@ -401,7 +407,7 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
                        "device" => device,
                        "input" => input);
                 self.set_first_operand(input);
-            },
+            }
             OpCode::Out => {
                 let output = self.first_operand();
                 let device = self.second_operand()? as u16;
@@ -416,7 +422,7 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
                     device,
                     data: output,
                 });
-            },
+            }
 
             OpCode::Compare => {
                 self.emulator.context.flags.zero();
@@ -425,11 +431,11 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
                 let op2 = self.second_operand()?;
 
                 match op1.cmp(&op2) {
-                    Ordering::Less    => self.emulator.context.flags.less = true,
-                    Ordering::Equal   => self.emulator.context.flags.equal = true,
+                    Ordering::Less => self.emulator.context.flags.less = true,
+                    Ordering::Equal => self.emulator.context.flags.equal = true,
                     Ordering::Greater => self.emulator.context.flags.greater = true,
                 }
-            },
+            }
 
             OpCode::Jump { condition, negated } => {
                 let op1 = self.first_operand();
@@ -450,7 +456,7 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
 
                     self.emulator.context.pc = self.instruction.immediate;
                 }
-            },
+            }
 
             OpCode::SupervisorCall => {
                 // XXX: Maybe we should give the implementor of InputOutput easy access to the
@@ -467,24 +473,24 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
                 self.dispatch(Event::SupervisorCall {
                     code: self.instruction.immediate,
                 });
-            },
+            }
 
             OpCode::Push => {
                 let op2 = self.second_operand()?;
                 self.push_stack(op2 as i32)?;
-            },
+            }
 
             OpCode::Pop => {
                 let value = self.pop_stack()?;
                 self.set_second_operand(value)?;
-            },
+            }
 
             OpCode::PushRegisters => {
                 for i in 0..8 {
                     self.push_stack(self.emulator.context.r[i] as i32)?;
                 }
                 self.push_stack(self.emulator.context.flags.as_word())?;
-            },
+            }
 
             OpCode::PopRegisters => {
                 let flags = self.pop_stack()?;
@@ -494,8 +500,8 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
                     let value = self.pop_stack()?;
                     self.emulator.context.r[i] = value;
                 }
-            },
-            
+            }
+
             OpCode::Call => {
                 //let addr = self.pop_stack()?;
                 self.push_stack(self.emulator.context.pc as i32)?;
@@ -504,12 +510,12 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
 
                 debug!(self.logger, "calling procedure at 0x{:04x}", addr;
                        "address" => addr);
-            },
+            }
 
             OpCode::Exit => {
                 let addr = self.pop_stack()?;
                 self.emulator.context.pc = addr as u16;
-            },
+            }
 
             OpCode::NoOperation => (),
 
@@ -518,18 +524,18 @@ impl<'e,'i,M,IO> InstructionEmulationContext<'e, 'i, M, IO>
                 let op2 = self.second_operand()?;
 
                 match arithmetic_instruction {
-                    OpCode::Add =>      op1 += op2,
+                    OpCode::Add => op1 += op2,
                     OpCode::Subtract => op1 -= op2,
                     OpCode::Multiply => op1 *= op2,
-                    OpCode::Divide =>   op1 /= op2,
-                    OpCode::Modulo =>   op1 %= op2,
+                    OpCode::Divide => op1 /= op2,
+                    OpCode::Modulo => op1 %= op2,
 
-                    OpCode::And =>                  op1  &= op2,
-                    OpCode::Or =>                   op1  |= op2,
-                    OpCode::Xor =>                  op1  ^= op2,
-                    OpCode::Not =>                  op1   = !op1,
-                    OpCode::ShiftLeft =>            op1 <<= op2,
-                    OpCode::ShiftRight =>           op1 >>= op2,
+                    OpCode::And => op1 &= op2,
+                    OpCode::Or => op1 |= op2,
+                    OpCode::Xor => op1 ^= op2,
+                    OpCode::Not => op1 = !op1,
+                    OpCode::ShiftLeft => op1 <<= op2,
+                    OpCode::ShiftRight => op1 >>= op2,
                     OpCode::ArithmeticShiftRight => unimplemented!(),
 
                     op => unimplemented!("Instruction {:?}", op),
@@ -565,7 +571,11 @@ pub struct Emulator<Mem, IO> {
     dispatcher: EventDispatcher,
 }
 
-impl<Mem, IO> Emulator<Mem, IO> where Mem: Memory, IO: InputOutput {
+impl<Mem, IO> Emulator<Mem, IO>
+where
+    Mem: Memory,
+    IO: InputOutput,
+{
     /// Create a new emulator.
     ///
     /// # Parameters
@@ -587,11 +597,7 @@ impl<Mem, IO> Emulator<Mem, IO> where Mem: Memory, IO: InputOutput {
     ///
     /// # Returns
     /// A new [Emulator] instance.
-    pub fn with_logger<L>(
-        memory: Mem,
-        io: IO,
-        logger: L,
-    ) -> Result<Emulator<Mem, IO>, Mem::Error>
+    pub fn with_logger<L>(memory: Mem, io: IO, logger: L) -> Result<Emulator<Mem, IO>, Mem::Error>
     where
         L: Into<Option<Logger>>,
     {
@@ -604,7 +610,16 @@ impl<Mem, IO> Emulator<Mem, IO> where Mem: Memory, IO: InputOutput {
 
         Ok(Emulator {
             context: Context {
-                r: [0, 0, 0, 0, 0, 0, stack_base_address as i32, stack_base_address as i32],
+                r: [
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    stack_base_address as i32,
+                    stack_base_address as i32,
+                ],
                 pc: 0,
                 flags: Default::default(),
             },
@@ -698,7 +713,7 @@ impl TestIo {
         }
     }
 
-    pub fn with_input<I: IntoIterator<Item=i32>>(input: I) -> TestIo {
+    pub fn with_input<I: IntoIterator<Item = i32>>(input: I) -> TestIo {
         TestIo {
             input_buffer: input.into_iter().collect(),
             output_buffer: Vec::new(),
@@ -759,25 +774,22 @@ pub struct StdIo;
 impl InputOutput for StdIo {
     fn input(&mut self, device: u16) -> i32 {
         match device {
-            0 => {
-                std::io::stdin()
-                    .bytes()
-                    .next()
-                    .transpose()
-                    .unwrap_or(None)
-                    .map(|byte| byte as i32)
-                    .unwrap_or(0xFFFF)
-            },
+            0 => std::io::stdin()
+                .bytes()
+                .next()
+                .transpose()
+                .unwrap_or(None)
+                .map(|byte| byte as i32)
+                .unwrap_or(0xFFFF),
             1 => {
                 let mut line = String::new();
 
-                std::io::stdin().read_line(&mut line)
+                std::io::stdin()
+                    .read_line(&mut line)
                     .expect("could not read from standard input");
 
-                line[..line.len()-1]
-                    .parse()
-                    .unwrap_or(0xFFFF)
-            },
+                line[..line.len() - 1].parse().unwrap_or(0xFFFF)
+            }
             _ => 0,
         }
     }
@@ -785,9 +797,12 @@ impl InputOutput for StdIo {
     fn output(&mut self, device: u16, data: i32) {
         match device {
             0 => println!("{}", data),
-            1 => print!("{}", std::char::from_u32(data as u32)
-                          .map(|c| format!("{}", c))
-                          .unwrap_or("<Invalid Character>".to_string())),
+            1 => print!(
+                "{}",
+                std::char::from_u32(data as u32)
+                    .map(|c| format!("{}", c))
+                    .unwrap_or("<Invalid Character>".to_string())
+            ),
             _ => (),
         }
     }
@@ -820,22 +835,37 @@ impl Memory for FixedMemory {
     type Error = MemoryError;
 
     fn get_instruction(&mut self, address: u16) -> Result<Instruction, Self::Error> {
-        self.inner.get(address as usize)
+        self.inner
+            .get(address as usize)
             .map(|w| *w as u32)
-            .ok_or(MemoryError { address, kind: MemoryErrorKind::InvalidAddress })
-            .and_then(|word| TryFrom::try_from(word)
-                .map_err(|_| MemoryError { address, kind: MemoryErrorKind::IllegalAccess }))
+            .ok_or(MemoryError {
+                address,
+                kind: MemoryErrorKind::InvalidAddress,
+            })
+            .and_then(|word| {
+                TryFrom::try_from(word).map_err(|_| MemoryError {
+                    address,
+                    kind: MemoryErrorKind::IllegalAccess,
+                })
+            })
     }
 
     fn get_data(&mut self, address: u16) -> Result<i32, Self::Error> {
-        self.inner.get(address as usize)
+        self.inner
+            .get(address as usize)
             .copied()
-            .ok_or(MemoryError { address, kind: MemoryErrorKind::InvalidAddress })
+            .ok_or(MemoryError {
+                address,
+                kind: MemoryErrorKind::InvalidAddress,
+            })
     }
 
     fn set_data(&mut self, address: u16, value: i32) -> Result<(), Self::Error> {
         if self.inner.len() < address as usize {
-            return Err(MemoryError { address, kind: MemoryErrorKind::InvalidAddress });
+            return Err(MemoryError {
+                address,
+                kind: MemoryErrorKind::InvalidAddress,
+            });
         }
 
         self.inner[address as usize] = value;
@@ -878,11 +908,7 @@ pub struct BalloonMemory {
 impl BalloonMemory {
     pub fn new(program: crate::bytecode::Program) -> BalloonMemory {
         BalloonMemory {
-            program: program
-                .to_words()
-                .into_iter()
-                .map(|w| w as i32)
-                .collect(),
+            program: program.to_words().into_iter().map(|w| w as i32).collect(),
             stack: vec![0; 8],
         }
     }
@@ -892,11 +918,19 @@ impl Memory for BalloonMemory {
     type Error = MemoryError;
 
     fn get_instruction(&mut self, address: u16) -> Result<Instruction, Self::Error> {
-        self.program.get(address as usize)
+        self.program
+            .get(address as usize)
             .map(|w| *w as u32)
-            .ok_or(MemoryError { address, kind: MemoryErrorKind::InvalidAddress })
-            .and_then(|word| TryFrom::try_from(word)
-                .map_err(|_| MemoryError { address, kind: MemoryErrorKind::InvalidAddress }))
+            .ok_or(MemoryError {
+                address,
+                kind: MemoryErrorKind::InvalidAddress,
+            })
+            .and_then(|word| {
+                TryFrom::try_from(word).map_err(|_| MemoryError {
+                    address,
+                    kind: MemoryErrorKind::InvalidAddress,
+                })
+            })
     }
 
     fn get_data(&mut self, address: u16) -> Result<i32, Self::Error> {
@@ -932,12 +966,13 @@ impl Memory for BalloonMemory {
     }
 
     fn grow_stack(&mut self, amount: u16) -> Result<(), Self::Error> {
-        self.stack.extend(std::iter::repeat(0).take(amount as usize));
+        self.stack
+            .extend(std::iter::repeat(0).take(amount as usize));
         Ok(())
     }
 
     fn stack_address_range(&self) -> Result<std::ops::RangeInclusive<u16>, Self::Error> {
-        Ok((0xFFFF-self.stack.len() as u16)+1..=0xFFFF)
+        Ok((0xFFFF - self.stack.len() as u16) + 1..=0xFFFF)
     }
 }
 
@@ -947,25 +982,38 @@ mod tests {
 
     macro_rules! assert_register {
         ($emulator:expr, $register:expr, $value:expr) => {
-            assert_eq!($emulator.context.r[$register], $value, "Register {} != {}", $register, $value);
+            assert_eq!(
+                $emulator.context.r[$register], $value,
+                "Register {} != {}",
+                $register, $value
+            );
         };
     }
 
     macro_rules! assert_symbol {
         ($emulator:expr, $program:expr, $symbol:expr, $value:expr) => {
-            let addr = $program.symbol_table.get_symbol_by_label_mut($symbol)
+            let addr = $program
+                .symbol_table
+                .get_symbol_by_label_mut($symbol)
                 .expect("no such symbol")
                 .get::<$crate::symbol_table::Value>()
                 .expect("symbol to have an address");
-            let value = $emulator.memory.get_data(addr as u16)
+            let value = $emulator
+                .memory
+                .get_data(addr as u16)
                 .expect("symbol points to invalid memory");
-            assert_eq!(value, $value, "Symbol '{}' at {} != {}", $symbol, addr, $value);
+            assert_eq!(
+                value, $value,
+                "Symbol '{}' at {} != {}",
+                $symbol, addr, $value
+            );
         };
     }
 
     #[test]
     fn test_stack_basic() {
-        let program = crate::symbolic::Program::parse(r#"
+        let program = crate::symbolic::Program::parse(
+            r#"
             var1 DC 1234
             var2 DC 0
             var3 DC 0
@@ -982,7 +1030,9 @@ mod tests {
             POP  SP, @R2
 
             SVC  SP, =11
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
         println!("{:?}", program);
 
         let mut program = program.compile();
@@ -1006,7 +1056,8 @@ mod tests {
 
     #[test]
     fn test_stack_procedures() {
-        let program = crate::symbolic::Program::parse(r#"
+        let program = crate::symbolic::Program::parse(
+            r#"
         var1    DC 0
 
         main    CALL  SP, =proc
@@ -1015,7 +1066,9 @@ mod tests {
         proc    LOAD  R1, =1234
                 STORE R1, =var1
                 EXIT  SP, =0xABCD
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
         println!("{:?}", program);
 
         let mut program = program.compile();
@@ -1038,13 +1091,16 @@ mod tests {
 
     #[test]
     fn test_stack_grow() {
-        let program = crate::symbolic::Program::parse(r#"
+        let program = crate::symbolic::Program::parse(
+            r#"
             LOAD  R1, =100
             PUSH  SP, R1
             SUB   R1, =1
             JNZER R1, =0x0001
             SVC   SP, =HALT
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
         println!("{:?}", program);
 
         let program = program.compile();
@@ -1064,7 +1120,8 @@ mod tests {
 
     #[test]
     fn test_stack_push_pop_registers() {
-        let program = crate::symbolic::Program::parse(r#"
+        let program = crate::symbolic::Program::parse(
+            r#"
             PUSHR SP
             COMP  R1, =0
             LOAD  R2, =0
@@ -1073,14 +1130,16 @@ mod tests {
             LOAD  R5, =0
             POPR  SP
             SVC   SP, =HALT
-        "#).expect("could not parse program");
+        "#,
+        )
+        .expect("could not parse program");
 
         let program = program.compile();
         let mut memory = FixedMemory::new(128, 32);
         memory.load(program);
 
-        let mut emulator = Emulator::new(memory, TestIo::new())
-            .expect("could not initialize emulator");
+        let mut emulator =
+            Emulator::new(memory, TestIo::new()).expect("could not initialize emulator");
 
         // Register R7 is the stack pointer and canot be changed if we want to keep the stack
         // functional.
@@ -1089,11 +1148,10 @@ mod tests {
         }
 
         emulator.context.flags.from_word(0b111);
-        
+
         while !emulator.halted {
             println!("{:?}", emulator.get_current_instruction());
-            emulator.step()
-                .expect("error while executing the program");
+            emulator.step().expect("error while executing the program");
             println!("{:?}", emulator.context);
         }
 

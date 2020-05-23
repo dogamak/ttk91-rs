@@ -69,7 +69,7 @@ pub enum OpCode {
 
     /// Performs a binary or operation on a register.
     Or,
-    
+
     /// Performs a binary xor operation on a register.
     Xor,
 
@@ -135,23 +135,62 @@ impl OpCode {
 
             OpCode::Compare => 0x1F,
 
-            OpCode::Jump { negated: _, condition: JumpCondition::Unconditional } => 0x20,
+            OpCode::Jump {
+                negated: _,
+                condition: JumpCondition::Unconditional,
+            } => 0x20,
 
-            OpCode::Jump { negated: false, condition: JumpCondition::Negative } => 0x21,
-            OpCode::Jump { negated: false, condition: JumpCondition::Zero } => 0x22,
-            OpCode::Jump { negated: false, condition: JumpCondition::Positive } => 0x23,
+            OpCode::Jump {
+                negated: false,
+                condition: JumpCondition::Negative,
+            } => 0x21,
+            OpCode::Jump {
+                negated: false,
+                condition: JumpCondition::Zero,
+            } => 0x22,
+            OpCode::Jump {
+                negated: false,
+                condition: JumpCondition::Positive,
+            } => 0x23,
 
-            OpCode::Jump { negated: true,  condition: JumpCondition::Negative } => 0x24,
-            OpCode::Jump { negated: true,  condition: JumpCondition::Zero } => 0x25,
-            OpCode::Jump { negated: true,  condition: JumpCondition::Positive } => 0x26,
+            OpCode::Jump {
+                negated: true,
+                condition: JumpCondition::Negative,
+            } => 0x24,
+            OpCode::Jump {
+                negated: true,
+                condition: JumpCondition::Zero,
+            } => 0x25,
+            OpCode::Jump {
+                negated: true,
+                condition: JumpCondition::Positive,
+            } => 0x26,
 
-            OpCode::Jump { negated: false, condition: JumpCondition::Less } => 0x27,
-            OpCode::Jump { negated: false, condition: JumpCondition::Equal } => 0x28,
-            OpCode::Jump { negated: false, condition: JumpCondition::Greater } => 0x29,
+            OpCode::Jump {
+                negated: false,
+                condition: JumpCondition::Less,
+            } => 0x27,
+            OpCode::Jump {
+                negated: false,
+                condition: JumpCondition::Equal,
+            } => 0x28,
+            OpCode::Jump {
+                negated: false,
+                condition: JumpCondition::Greater,
+            } => 0x29,
 
-            OpCode::Jump { negated: true,  condition: JumpCondition::Less } => 0x2A,
-            OpCode::Jump { negated: true,  condition: JumpCondition::Equal } => 0x2B,
-            OpCode::Jump { negated: true,  condition: JumpCondition::Greater } => 0x2C,
+            OpCode::Jump {
+                negated: true,
+                condition: JumpCondition::Less,
+            } => 0x2A,
+            OpCode::Jump {
+                negated: true,
+                condition: JumpCondition::Equal,
+            } => 0x2B,
+            OpCode::Jump {
+                negated: true,
+                condition: JumpCondition::Greater,
+            } => 0x2C,
 
             OpCode::Call => 0x31,
             OpCode::Exit => 0x32,
@@ -189,23 +228,62 @@ impl OpCode {
 
             0x1F => OpCode::Compare,
 
-            0x20 => OpCode::Jump { negated: false, condition: JumpCondition::Unconditional },
+            0x20 => OpCode::Jump {
+                negated: false,
+                condition: JumpCondition::Unconditional,
+            },
 
-            0x21 => OpCode::Jump { negated: false, condition: JumpCondition::Negative },
-            0x22 => OpCode::Jump { negated: false, condition: JumpCondition::Zero },
-            0x23 => OpCode::Jump { negated: false, condition: JumpCondition::Positive },
+            0x21 => OpCode::Jump {
+                negated: false,
+                condition: JumpCondition::Negative,
+            },
+            0x22 => OpCode::Jump {
+                negated: false,
+                condition: JumpCondition::Zero,
+            },
+            0x23 => OpCode::Jump {
+                negated: false,
+                condition: JumpCondition::Positive,
+            },
 
-            0x24 => OpCode::Jump { negated: true,  condition: JumpCondition::Negative },
-            0x25 => OpCode::Jump { negated: true,  condition: JumpCondition::Zero },
-            0x26 => OpCode::Jump { negated: true,  condition: JumpCondition::Positive },
+            0x24 => OpCode::Jump {
+                negated: true,
+                condition: JumpCondition::Negative,
+            },
+            0x25 => OpCode::Jump {
+                negated: true,
+                condition: JumpCondition::Zero,
+            },
+            0x26 => OpCode::Jump {
+                negated: true,
+                condition: JumpCondition::Positive,
+            },
 
-            0x27 => OpCode::Jump { negated: false, condition: JumpCondition::Less },
-            0x28 => OpCode::Jump { negated: false, condition: JumpCondition::Equal },
-            0x29 => OpCode::Jump { negated: false, condition: JumpCondition::Greater },
+            0x27 => OpCode::Jump {
+                negated: false,
+                condition: JumpCondition::Less,
+            },
+            0x28 => OpCode::Jump {
+                negated: false,
+                condition: JumpCondition::Equal,
+            },
+            0x29 => OpCode::Jump {
+                negated: false,
+                condition: JumpCondition::Greater,
+            },
 
-            0x2A => OpCode::Jump { negated: true,  condition: JumpCondition::Less },
-            0x2B => OpCode::Jump { negated: true,  condition: JumpCondition::Equal },
-            0x2C => OpCode::Jump { negated: true,  condition: JumpCondition::Greater },
+            0x2A => OpCode::Jump {
+                negated: true,
+                condition: JumpCondition::Less,
+            },
+            0x2B => OpCode::Jump {
+                negated: true,
+                condition: JumpCondition::Equal,
+            },
+            0x2C => OpCode::Jump {
+                negated: true,
+                condition: JumpCondition::Greater,
+            },
 
             0x31 => OpCode::Call,
             0x32 => OpCode::Exit,
@@ -239,45 +317,49 @@ impl fmt::Display for OpCode {
 
                 match negated {
                     true => write!(f, "JN{}", end),
-                    false => write!(f, "J{}", end)
+                    false => write!(f, "J{}", end),
                 }
             }
         } else {
-            write!(f, "{}", match self {
-                OpCode::NoOperation => "NOP",
+            write!(
+                f,
+                "{}",
+                match self {
+                    OpCode::NoOperation => "NOP",
 
-                OpCode::Store => "STORE",
-                OpCode::Load => "LOAD",
-                OpCode::In => "IN",
-                OpCode::Out => "OUT",
+                    OpCode::Store => "STORE",
+                    OpCode::Load => "LOAD",
+                    OpCode::In => "IN",
+                    OpCode::Out => "OUT",
 
-                OpCode::Add => "ADD",
-                OpCode::Subtract => "SUB",
-                OpCode::Multiply => "MUL",
-                OpCode::Divide => "DIV",
-                OpCode::Modulo => "MOD",
+                    OpCode::Add => "ADD",
+                    OpCode::Subtract => "SUB",
+                    OpCode::Multiply => "MUL",
+                    OpCode::Divide => "DIV",
+                    OpCode::Modulo => "MOD",
 
-                OpCode::And => "AND",
-                OpCode::Or => "OR",
-                OpCode::Xor => "XOR",
-                OpCode::ShiftLeft => "SHL",
-                OpCode::ShiftRight => "SHR",
-                OpCode::Not => "NOT",
-                OpCode::ArithmeticShiftRight => "ASHL",
+                    OpCode::And => "AND",
+                    OpCode::Or => "OR",
+                    OpCode::Xor => "XOR",
+                    OpCode::ShiftLeft => "SHL",
+                    OpCode::ShiftRight => "SHR",
+                    OpCode::Not => "NOT",
+                    OpCode::ArithmeticShiftRight => "ASHL",
 
-                OpCode::Compare => "COMP",
+                    OpCode::Compare => "COMP",
 
-                OpCode::Call => "CALL",
-                OpCode::Exit => "EXIT",
-                OpCode::Push => "PUSH",
-                OpCode::Pop => "POP",
-                OpCode::PushRegisters => "PUSHR",
-                OpCode::PopRegisters => "POPR",
+                    OpCode::Call => "CALL",
+                    OpCode::Exit => "EXIT",
+                    OpCode::Push => "PUSH",
+                    OpCode::Pop => "POP",
+                    OpCode::PushRegisters => "PUSHR",
+                    OpCode::PopRegisters => "POPR",
 
-                OpCode::SupervisorCall => "SVC",
+                    OpCode::SupervisorCall => "SVC",
 
-                OpCode::Jump { .. } => unreachable!(),
-            })
+                    OpCode::Jump { .. } => unreachable!(),
+                }
+            )
         }
     }
 }
@@ -394,7 +476,9 @@ impl fmt::Display for Instruction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use Mode::*;
 
-        write!(f, "{} {}, {}",
+        write!(
+            f,
+            "{} {}, {}",
             self.opcode,
             self.register,
             match (self.mode, self.immediate, self.index_register) {
@@ -403,14 +487,14 @@ impl fmt::Display for Instruction {
                 (Direct, imm, reg) => format!("0x{:04x}({})", imm, reg),
                 (Indirect, 0, reg) => format!("@{}", reg),
                 (Indirect, imm, reg) => format!("@0x{:04x}({})", imm, reg),
-            })
+            }
+        )
     }
 }
 
 impl Into<u32> for Instruction {
     fn into(self) -> u32 {
         let [imm1, imm2] = self.immediate.to_be_bytes();
-
 
         let reg_byte: u8 = self.register.index() as u8;
         let mode_byte: u8 = self.mode.as_byte();
@@ -422,12 +506,7 @@ impl Into<u32> for Instruction {
         //let reg  = (flags & 0b1110_0000) >> 5;
         //let ireg = (flags & 0b0000_0111) >> 0;
 
-        u32::from_be_bytes([
-            self.opcode.as_byte(),
-            registers,
-            imm1,
-            imm2,
-        ])
+        u32::from_be_bytes([self.opcode.as_byte(), registers, imm1, imm2])
     }
 }
 
@@ -450,7 +529,7 @@ impl TryFrom<&[u8; 4]> for Instruction {
         let flags = bytes[1];
 
         let mode = (flags & 0b0001_1000) >> 3;
-        let reg  = (flags & 0b1110_0000) >> 5;
+        let reg = (flags & 0b1110_0000) >> 5;
         let ireg = (flags & 0b0000_0111) >> 0;
 
         let immediate = u16::from_be_bytes([bytes[2], bytes[3]]);

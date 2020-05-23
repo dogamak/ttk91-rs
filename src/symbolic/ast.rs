@@ -2,20 +2,10 @@ use crate::symbol_table::SymbolId;
 
 use crate::parsing::Span;
 
-pub use crate::instruction::{
-    Register,
-    OpCode as RealOpCode,
-    JumpCondition,
-    Mode,
-};
+pub use crate::instruction::{JumpCondition, Mode, OpCode as RealOpCode, Register};
 
 pub use crate::symbolic::program::{
-    PseudoOpCode,
-    Value,
-    RealInstruction,
-    PseudoInstruction,
-    SymbolicInstruction,
-    SecondOperand,
+    PseudoInstruction, PseudoOpCode, RealInstruction, SecondOperand, SymbolicInstruction, Value,
 };
 
 #[derive(Debug, Clone)]

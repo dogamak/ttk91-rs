@@ -22,7 +22,8 @@ impl Program {
     pub fn to_words(&self) -> Vec<i32> {
         let size = std::cmp::max(
             self.code.start + self.code.content.len(),
-            self.data.start + self.data.content.len());
+            self.data.start + self.data.content.len(),
+        );
 
         let mut v = vec![0; size];
 

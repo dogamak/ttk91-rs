@@ -1,6 +1,6 @@
 use logos::Logos;
-use std::str::FromStr;
 use std::fmt;
+use std::str::FromStr;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Section {
@@ -14,11 +14,11 @@ pub enum Section {
 impl fmt::Display for Section {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Section::Start => write!(f, "___b91___"), 
-            Section::End => write!(f, "___end___"), 
-            Section::Code => write!(f, "___code___"), 
-            Section::Data => write!(f, "___data___"), 
-            Section::SymbolTable => write!(f, "___symboltable___"), 
+            Section::Start => write!(f, "___b91___"),
+            Section::End => write!(f, "___end___"),
+            Section::Code => write!(f, "___code___"),
+            Section::Data => write!(f, "___data___"),
+            Section::SymbolTable => write!(f, "___symboltable___"),
         }
     }
 }

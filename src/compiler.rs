@@ -1,16 +1,16 @@
 //! Compilation from assembly source to bytecode.
 
+use crate::symbol_table::{Label, Location, SymbolId, SymbolInfo, SymbolTable, Value};
 use crate::symbolic;
 use crate::symbolic::program::SymbolicInstruction;
-use crate::symbol_table::{SymbolId, SymbolInfo, SymbolTable, Label, Location, Value};
 
-use crate::bytecode::{Segment, Program};
+use crate::bytecode::{Program, Segment};
 use crate::instruction::Instruction;
 
-use std::collections::HashMap;
 use crate::parsing::Span;
+use std::collections::HashMap;
 
-use slog::{o, Logger, Discard, trace};
+use slog::{o, trace, Discard, Logger};
 
 /// Represents the type of a memory segment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -118,11 +118,14 @@ impl CompileTarget for Program {
                 self.code.content.push(word);
                 self.data.start += 1;
                 (self.code.content.len() - 1, self.code.content.len() - 1)
-            },
+            }
             SegmentType::Data => {
                 self.data.content.push(word);
-                (self.code.content.len() + self.data.content.len() - 1, self.data.content.len() - 1)
-            },
+                (
+                    self.code.content.len() + self.data.content.len() - 1,
+                    self.data.content.len() - 1,
+                )
+            }
         };
 
         self.move_symbols_after(abs_addr as u16);
@@ -148,10 +151,15 @@ impl CompileTarget for Program {
 
         let sym = self.symbol_table.get_symbol_mut(id);
 
-        println!("Set location: {:?} ({:?}) = {}",
-            sym.get::<Label>().as_ref().as_ref().unwrap_or(&String::new()),
+        println!(
+            "Set location: {:?} ({:?}) = {}",
+            sym.get::<Label>()
+                .as_ref()
+                .as_ref()
+                .unwrap_or(&String::new()),
             sym.get::<SymbolId>(),
-            addr);
+            addr
+        );
 
         sym.set::<Value>(Some(addr as i32));
     }
@@ -183,8 +191,9 @@ pub struct SourceMap<T: CompileTarget> {
 }
 
 impl<T> CompileTarget for SourceMap<T>
-    where T: CompileTarget,
-          T::Location: std::hash::Hash + std::cmp::Eq + Clone,
+where
+    T: CompileTarget,
+    T::Location: std::hash::Hash + std::cmp::Eq + Clone,
 {
     type Location = T::Location;
 
@@ -259,10 +268,7 @@ fn print_hash<T: std::hash::Hash>(t: &T) -> String {
     format!("{:x}", hasher.finish())
 }
 
-pub fn compile_with_logger<T,L>(
-    symprog: symbolic::Program,
-    logger: L,
-) -> T
+pub fn compile_with_logger<T, L>(symprog: symbolic::Program, logger: L) -> T
 where
     T: CompileTarget + 'static,
     L: Into<Option<Logger>>,
@@ -275,8 +281,12 @@ where
 
     let mut target = T::create(symprog.symbol_table);
 
-    let _ = target.symbol_table_mut().define_symbol(0..0, "CRT".to_string(), 11);
-    let _ = target.symbol_table_mut().define_symbol(0..0, "HALT".to_string(), 0);
+    let _ = target
+        .symbol_table_mut()
+        .define_symbol(0..0, "CRT".to_string(), 11);
+    let _ = target
+        .symbol_table_mut()
+        .define_symbol(0..0, "HALT".to_string(), 0);
 
     let mut relocation_table = HashMap::<SymbolId, Vec<(T::Location, Instruction)>>::new();
 
@@ -286,11 +296,7 @@ where
                 let ins: Instruction = sym_ins.clone().into();
                 let word: u32 = ins.clone().into();
 
-                let loc = target.push_word(
-                    entry.span,
-                    word as i32,
-                    SegmentType::Text,
-                );
+                let loc = target.push_word(entry.span, word as i32, SegmentType::Text);
 
                 let loc_log = logger.new(o!("location" => print_hash(&loc)));
 
@@ -306,18 +312,15 @@ where
 
                 for symbol in entry.labels {
                     trace!(loc_log, "add a label to the symbol table"; "symbol" => ?symbol);
-                    target.symbol_table_mut()
+                    target
+                        .symbol_table_mut()
                         .get_symbol_mut(symbol)
                         .set::<Location<T>>(Some(loc.clone()));
                     target.set_symbol(symbol, &loc);
                 }
-            },
+            }
             SymbolicInstruction::Pseudo(ins) => {
-                let loc = target.push_word(
-                    entry.span.clone(),
-                    ins.value,
-                    SegmentType::Data,
-                );
+                let loc = target.push_word(entry.span.clone(), ins.value, SegmentType::Data);
 
                 let loc_log = logger.new(o!("location" => print_hash(&loc)));
 
@@ -325,20 +328,17 @@ where
 
                 for symbol in entry.labels {
                     trace!(loc_log, "add a label to the symbol table"; "symbol" => ?symbol);
-                    target.symbol_table_mut()
+                    target
+                        .symbol_table_mut()
                         .get_symbol_mut(symbol)
                         .set::<Location<T>>(Some(loc.clone()));
                     target.set_symbol(symbol, &loc);
                 }
 
-                for _ in 0..ins.size-1 {
-                    target.push_word(
-                        entry.span.clone(),
-                        ins.value,
-                        SegmentType::Data,
-                    );
+                for _ in 0..ins.size - 1 {
+                    target.push_word(entry.span.clone(), ins.value, SegmentType::Data);
                 }
-            },
+            }
         }
     }
 
@@ -351,11 +351,21 @@ where
             Some("HALT") => 11,
             label => {
                 println!("{:?}", sym);
-                let location = sym.get::<Location<T>>().as_ref().as_ref()
-                    .expect(format!("Symbol {:?} ({:?}) has no location", sym.get::<SymbolId>(), label).as_ref())
+                let location = sym
+                    .get::<Location<T>>()
+                    .as_ref()
+                    .as_ref()
+                    .expect(
+                        format!(
+                            "Symbol {:?} ({:?}) has no location",
+                            sym.get::<SymbolId>(),
+                            label
+                        )
+                        .as_ref(),
+                    )
                     .clone();
                 target.to_address(&location)
-            },
+            }
         };
 
         for (ins_loc, mut ins) in locs {
@@ -364,13 +374,10 @@ where
 
             trace!(logger, "replace address part"; "address" => addr);
 
-            target.set_word(
-                &ins_loc,
-                word as i32,
-            );
+            target.set_word(&ins_loc, word as i32);
         }
     }
-    
+
     target.finish()
 }
 
@@ -400,7 +407,10 @@ MAIN 	LOAD 	R1, X
         println!("W> {:b}", word);
     }
 
-    let ins = prog.code.content.iter()
+    let ins = prog
+        .code
+        .content
+        .iter()
         .map(|word| Instruction::try_from(*word as u32).unwrap())
         .collect::<Vec<_>>();
 
@@ -411,7 +421,7 @@ MAIN 	LOAD 	R1, X
 
 #[test]
 fn test_compile_sourcemap() {
-    use crate::{symbolic, bytecode};
+    use crate::{bytecode, symbolic};
 
     let source = r#"
 X 	DC 	13
@@ -429,13 +439,17 @@ MAIN 	LOAD 	R1, X
     let program = symbolic::Program::parse(source).unwrap();
     let prog: SourceMap<bytecode::Program> = compile(program);
 
-    let source_lines = prog.source_map.iter()
+    let source_lines = prog
+        .source_map
+        .iter()
         .map(|(addr, span)| (addr, source[..span.start].split('\n').count()))
-        .collect::<HashMap<_,_>>();
+        .collect::<HashMap<_, _>>();
 
-    let lines = prog.source_map.iter()
+    let lines = prog
+        .source_map
+        .iter()
         .map(|(addr, span)| (addr, &source[span.clone()]))
-        .collect::<HashMap<_,_>>();
+        .collect::<HashMap<_, _>>();
 
     println!("{:?}", prog.source_map);
     println!("{:?}", source_lines);

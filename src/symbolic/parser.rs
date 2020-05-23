@@ -3,40 +3,25 @@
 //! The only function you problaly are interested in here is [parse_symbolic_file], which
 //! you probably want to use via [Program::parse](crate::symbolic::Program::parse).
 
-use slog::{Logger, Discard, trace, o};
+use slog::{o, trace, Discard, Logger};
 
 use std::fmt;
 
 use logos::Logos;
 
 use super::ast::{
-    Instruction,
-    JumpCondition,
-    Part,
-    Mode,
-    OpCode,
-    Program,
-    PseudoOpCode,
-    RealOpCode,
-    Register,
-    Operand,
-    Value,
+    Instruction, JumpCondition, Mode, OpCode, Operand, Part, Program, PseudoOpCode, RealOpCode,
+    Register, Value,
 };
 
 use crate::error::ResultExt;
 
 use crate::parsing::{
-    BufferedStream,
-    either,
-    ErrorKind as ParseErrorKind,
-    Context,
-    Either,
-    Parser as ParserTrait,
-    Span,
-    take_token,
+    either, take_token, BufferedStream, Context, Either, ErrorKind as ParseErrorKind,
+    Parser as ParserTrait, Span,
 };
 
-use crate::symbol_table::{SymbolTable, SymbolId, References, Label};
+use crate::symbol_table::{Label, References, SymbolId, SymbolTable};
 
 use super::token::Token;
 
@@ -56,10 +41,10 @@ pub enum ErrorKind {
 impl fmt::Display for ErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            ErrorKind::OperandCount { expected, got, .. } =>
-                write!(f, "expected {} operands but got {}", expected, got), 
-            ErrorKind::InvalidOperand { index, .. } =>
-                write!(f, "operand #{} is invalid", index),
+            ErrorKind::OperandCount { expected, got, .. } => {
+                write!(f, "expected {} operands but got {}", expected, got)
+            }
+            ErrorKind::InvalidOperand { index, .. } => write!(f, "operand #{} is invalid", index),
         }
     }
 }
@@ -84,7 +69,7 @@ pub struct State<T> {
     pub symbol_table: T,
 }
 
-pub struct Parser<'a, T=SymbolTable> {
+pub struct Parser<'a, T = SymbolTable> {
     logger: Logger,
     stream: BufferedStream<logos::SpannedIter<'a, Token<'a>>>,
     pub state: State<T>,
@@ -117,9 +102,9 @@ impl<'a, T> Parser<'a, T> {
     }
 }
 
+use edit_distance::edit_distance;
 use lazy_static::lazy_static;
 use std::collections::HashMap;
-use edit_distance::edit_distance;
 
 /// Finds the opcode with the mnemonic that has the shortest edit distance to the provided string.
 /// This is used to try and proved helpful suggestions for the user.
@@ -247,12 +232,13 @@ fn find_closest_opcode(label: &str) -> &'static OpCode {
             map.insert("DC", OpCode::Pseudo(PseudoOpCode::DC));
             map.insert("DS", OpCode::Pseudo(PseudoOpCode::DS));
             map.insert("EQU", OpCode::Pseudo(PseudoOpCode::EQU));
-            
+
             map
         };
     }
 
-    let mut distances = MNEMONIC_MAP.iter()
+    let mut distances = MNEMONIC_MAP
+        .iter()
         .map(|(key, opcode)| (edit_distance(key, label), opcode))
         .collect::<Vec<_>>();
 
@@ -267,7 +253,7 @@ fn find_closest_opcode(label: &str) -> &'static OpCode {
 ///
 /// [Fixes]: IterativeParsingResult::Fixes
 #[derive(Debug)]
-enum IterativeParsingResult<T,E> {
+enum IterativeParsingResult<T, E> {
     /// The parse operation was successfull without any errors.
     Success(T),
 
@@ -280,8 +266,7 @@ enum IterativeParsingResult<T,E> {
 
 impl<'t> Parser<'t, SymbolTable> {
     pub fn parse_instruction(input: &'t str) -> Result<Instruction> {
-        Parser::<SymbolTable>::from_str(input)
-            .apply(Parser::take_instruction)
+        Parser::<SymbolTable>::from_str(input).apply(Parser::take_instruction)
     }
 }
 
@@ -290,9 +275,7 @@ where
     T: std::borrow::BorrowMut<SymbolTable>,
 {
     /// Parse a single line of assembly.
-    pub fn parse_line(&mut self)
-        -> Result<'t, (Option<SymbolId>, Instruction)>
-    {
+    pub fn parse_line(&mut self) -> Result<'t, (Option<SymbolId>, Instruction)> {
         let label = self.apply(Self::take_symbol).ok();
 
         let instruction = self.apply(Parser::take_instruction)?;
@@ -312,7 +295,9 @@ where
     /// Like [Parser::parse], tries to parse a program written in symbolic TTK91 assembly.
     /// Unlike [Parser::parse], this function tries it's best to recover from any syntax errors in
     /// order to provide suggestions on how to fix these errors and continue parsing further.
-    pub fn parse_verbose(&mut self) -> std::result::Result<Program, (Option<Program>, Vec<ParseError<'t>>)> {
+    pub fn parse_verbose(
+        &mut self,
+    ) -> std::result::Result<Program, (Option<Program>, Vec<ParseError<'t>>)> {
         match self._parse_verbose(None) {
             IterativeParsingResult::Success(program) => Ok(program),
             IterativeParsingResult::Error(error) => Err((None, vec![error])),
@@ -320,20 +305,23 @@ where
         }
     }
 
-    fn _parse_verbose(&mut self, previous_error: Option<ParseError>)
-        -> IterativeParsingResult<Program, ParseError<'t>>
-    {
+    fn _parse_verbose(
+        &mut self,
+        previous_error: Option<ParseError>,
+    ) -> IterativeParsingResult<Program, ParseError<'t>> {
         let logger = self.logger.clone();
 
         let error = match self.parse() {
             Ok(program) => {
                 if let Some(_) = self.stream_mut().next() {
                     trace!(logger, "Trailing Input");
-                    return IterativeParsingResult::Error(ParseError::new(ParseErrorKind::TrailingInput));
+                    return IterativeParsingResult::Error(ParseError::new(
+                        ParseErrorKind::TrailingInput,
+                    ));
                 } else {
                     return IterativeParsingResult::Success(program);
                 }
-            },
+            }
             Err(err) => err,
         };
 
@@ -362,7 +350,11 @@ where
             let (ref mut token, ref span) = self.stream.buffer_mut()[i];
             let span = span.clone();
 
-            if let ParseErrorKind::UnexpectedToken { span: ref error_span, .. } = error.kind {
+            if let ParseErrorKind::UnexpectedToken {
+                span: ref error_span,
+                ..
+            } = error.kind
+            {
                 if span.start > error_span.start {
                     continue;
                 }
@@ -382,7 +374,7 @@ where
                 );
 
                 let res = self._parse_verbose(Some(error.clone()));
-                
+
                 trace!(logger, "Attempting fix: Parse result: {:?}", res);
 
                 self.stream.buffer_mut()[i].0 = original;
@@ -413,7 +405,7 @@ where
             trace!(logger, "Attempting fix: Remove token"; "token" => ?token);
 
             let res = self._parse_verbose(Some(error.clone()));
-            
+
             trace!(logger, "Attempting fix: Parse result: {:?}", res);
 
             self.stream.buffer_mut().insert(i, token);
@@ -465,21 +457,19 @@ where
     fn take_symbol(&mut self) -> Result<'t, SymbolId> {
         match self.stream_mut().next() {
             Some((Token::Symbol(label), span)) => {
-                let id = self.state
+                let id = self
+                    .state
                     .symbol_table
                     .borrow_mut()
                     .get_or_create(label.to_string());
 
-                let sym = self.state
-                    .symbol_table
-                    .borrow_mut()
-                    .get_symbol_mut(id);
+                let sym = self.state.symbol_table.borrow_mut().get_symbol_mut(id);
 
                 sym.get_mut::<References>().push(span);
                 sym.set::<Label>(Some(label.to_string()));
 
                 Ok(id)
-            },
+            }
             Some((got, span)) => Err(ParseError::unexpected(span, got, "a symbol".into())),
             None => Err(ParseError::end_of_stream().context("expected a symbol")),
         }
@@ -515,7 +505,9 @@ where
         let p = either(Self::take_symbol, Self::take_register);
         let p = either(Self::take_literal, p);
 
-        let res = self.apply(p).context("expected a symbol, a literal or a register")?;
+        let res = self
+            .apply(p)
+            .context("expected a symbol, a literal or a register")?;
 
         match res {
             Either::Left(num) => Ok(Value::Immediate(num as u16)),
@@ -571,7 +563,11 @@ where
         match self.stream_mut().next() {
             Some((Token::RealOperator(op), _span)) => Ok(OpCode::Real(op)),
             Some((Token::PseudoOperator(op), _span)) => Ok(OpCode::Pseudo(op)),
-            Some((got, span)) => Err(ParseError::unexpected(span, got, "expected an opcode".into())),
+            Some((got, span)) => Err(ParseError::unexpected(
+                span,
+                got,
+                "expected an opcode".into(),
+            )),
             None => Err(ParseError::end_of_stream().context("expected an opcode")),
         }
     }
@@ -613,7 +609,10 @@ where
         loop {
             match self.apply(Self::take_symbol) {
                 Ok(sym) => labels.push(sym),
-                Err(ParseError { kind: ParseErrorKind::EndOfStream, .. }) => return Ok(None),
+                Err(ParseError {
+                    kind: ParseErrorKind::EndOfStream,
+                    ..
+                }) => return Ok(None),
                 Err(_) => break,
             }
         }
@@ -637,9 +636,7 @@ where
 }
 
 /// Parse a single line of assembly.
-pub fn parse_line(input: &str)
-    -> Result<Part>
-{
+pub fn parse_line(input: &str) -> Result<Part> {
     Parser::from_str(input)
         .apply(Parser::take_part)
         .transpose()
@@ -649,15 +646,15 @@ pub fn parse_line(input: &str)
 
 #[cfg(test)]
 mod tests {
-    use itertools::Itertools;
     use super::*;
+    use itertools::Itertools;
 
     /// Returns the line number and the column number of the specified offset in the provided input
     /// buffer.
     fn calc_line_col(input: &str, location: usize) -> (usize, usize) {
         input[..location]
             .split('\n')
-            .fold((0,0), |(l, _), line| (l+1,line.len()))
+            .fold((0, 0), |(l, _), line| (l + 1, line.len()))
     }
 
     /// Prints the supplied errors in an user friendly format.
@@ -666,33 +663,43 @@ mod tests {
             let index = error.span().map(|s| s.start).unwrap_or(input.len());
             let (error_line, error_col) = calc_line_col(input, index);
 
-            let message = error.context.iter()
+            let message = error
+                .context
+                .iter()
                 .filter_map(|ctx| match ctx {
                     Context::Error { message } => Some(message),
                     _ => None,
                 })
                 .join(": ");
 
-            let line = input.split('\n').skip(error_line-1).next().unwrap();
+            let line = input.split('\n').skip(error_line - 1).next().unwrap();
             let prefix = format!("Line {} Column {}: Error: ", error_line, error_col);
             let old_len = line.len();
             let line = line.trim_start();
             let trim_diff = old_len - line.len();
             println!("{}{}", prefix, line);
-            print!("{}{} ", " ".repeat(prefix.len() + error_col - trim_diff), "^".repeat(error.span().unwrap().len()));
+            print!(
+                "{}{} ",
+                " ".repeat(prefix.len() + error_col - trim_diff),
+                "^".repeat(error.span().unwrap().len())
+            );
             println!("{}", message);
 
             for ctx in &error.context {
                 if let Context::Suggestion { span, message } = ctx {
                     let (error_line, error_col) = calc_line_col(input, span.start);
 
-                    let line = input.split('\n').skip(error_line-1).next().unwrap();
+                    let line = input.split('\n').skip(error_line - 1).next().unwrap();
                     let prefix = format!("Line {} Column {}: Suggestion: ", error_line, error_col);
                     let old_len = line.len();
                     let line = line.trim_start();
                     let trim_diff = old_len - line.len();
                     println!("{}{}", prefix, line);
-                    print!("{}{} ", " ".repeat(prefix.len() + error_col - trim_diff), "^".repeat(span.len()));
+                    print!(
+                        "{}{} ",
+                        " ".repeat(prefix.len() + error_col - trim_diff),
+                        "^".repeat(span.len())
+                    );
                     println!("{}", message);
                 }
             }
@@ -728,7 +735,7 @@ mod tests {
         println!("{:?}", result);
 
         if let Err(errors) = result {
-            for error in &errors { 
+            for error in &errors {
                 println!("Display: {}", error);
             }
 
