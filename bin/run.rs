@@ -24,6 +24,12 @@ impl From<ParseError> for Error {
     }
 }
 
+impl From<ttk91::bytecode::parser::Error> for Error {
+    fn from(_: ttk91::bytecode::parser::Error) -> Error {
+        Error::Parse
+    }
+}
+
 impl From<std::io::Error> for Error {
     fn from(e: std::io::Error) -> Error {
         Error::IO(e)

@@ -1,7 +1,7 @@
 //! Parsing and storing bytecode programs.
 
 mod token;
-mod parser;
+pub mod parser;
 mod program;
 
 pub use self::program::{

@@ -170,7 +170,7 @@ impl<'t> Parser<'t> {
             either(
                 Self::take_section_with_header(Section::Data),
                 Self::take_section_with_header(Section::Code),
-            ),t 
+            ),
         );
 
         let section = match self.apply(op)? {
