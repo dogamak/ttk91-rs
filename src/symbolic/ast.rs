@@ -4,9 +4,7 @@ use crate::parsing::Span;
 
 pub use crate::instruction::{JumpCondition, Mode, OpCode as RealOpCode, Register};
 
-pub use crate::symbolic::program::{
-    PseudoInstruction, PseudoOpCode, RealInstruction, SecondOperand, SymbolicInstruction, Value,
-};
+pub use crate::symbolic::program::{PseudoOpCode, Value};
 
 #[derive(Debug, Clone)]
 pub struct Program {

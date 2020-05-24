@@ -2,10 +2,10 @@
 
 use crate::symbol_table::{Label, Location, SymbolId, SymbolInfo, SymbolTable, Value};
 use crate::symbolic;
-use crate::symbolic::program::SymbolicInstruction;
+use crate::symbolic::program::Instruction as SymbolicInstruction;
 
 use crate::bytecode::{Program, Segment};
-use crate::instruction::Instruction;
+use crate::instruction::Instruction as BytecodeInstruction;
 
 use crate::parsing::Span;
 use std::collections::HashMap;
@@ -288,12 +288,12 @@ where
         .symbol_table_mut()
         .define_symbol(0..0, "HALT".to_string(), 0);
 
-    let mut relocation_table = HashMap::<SymbolId, Vec<(T::Location, Instruction)>>::new();
+    let mut relocation_table = HashMap::<SymbolId, Vec<(T::Location, BytecodeInstruction)>>::new();
 
     for entry in symprog.instructions {
         match entry.instruction {
             SymbolicInstruction::Real(sym_ins) => {
-                let ins: Instruction = sym_ins.clone().into();
+                let ins: BytecodeInstruction = sym_ins.clone().into();
                 let word: u32 = ins.clone().into();
 
                 let loc = target.push_word(entry.span, word as i32, SegmentType::Text);
@@ -411,7 +411,7 @@ MAIN 	LOAD 	R1, X
         .code
         .content
         .iter()
-        .map(|word| Instruction::try_from(*word as u32).unwrap())
+        .map(|word| BytecodeInstruction::try_from(*word as u32).unwrap())
         .collect::<Vec<_>>();
 
     println!("{:?}", ins);

@@ -1,6 +1,6 @@
 use super::parser::ParseError;
 use crate::compiler::SourceMap;
-use crate::instruction::{Instruction, Mode, OpCode, Register};
+use crate::instruction::{Instruction as BytecodeInstruction, Mode, OpCode, Register};
 use crate::parsing::Span;
 use crate::symbol_table::{SymbolId, SymbolTable};
 use crate::symbolic::parser::{ErrorKind, Parser};
@@ -14,7 +14,7 @@ pub struct PseudoInstruction {
 }
 
 #[derive(Debug, Clone)]
-pub enum SymbolicInstruction {
+pub enum Instruction {
     Real(RealInstruction),
     Pseudo(PseudoInstruction),
 }
@@ -39,7 +39,7 @@ impl fmt::Display for PseudoOpCode {
 #[derive(Clone, Debug)]
 pub struct InstructionEntry {
     pub labels: Vec<SymbolId>,
-    pub instruction: SymbolicInstruction,
+    pub instruction: Instruction,
     pub span: Option<Span>,
 }
 
@@ -70,8 +70,8 @@ impl RealInstruction {
     }
 }
 
-impl Into<Instruction> for RealInstruction {
-    fn into(self) -> Instruction {
+impl Into<BytecodeInstruction> for RealInstruction {
+    fn into(self) -> BytecodeInstruction {
         let mut index_register = Register::R0;
 
         let immediate = match self.operand2.value {
@@ -83,7 +83,7 @@ impl Into<Instruction> for RealInstruction {
             Value::Immediate(value) => value,
         };
 
-        Instruction {
+        BytecodeInstruction {
             opcode: self.opcode,
             register: self.operand1,
             index_register,
@@ -174,7 +174,7 @@ impl Default for SecondOperand {
 
 pub fn validate_instruction(
     instruction: super::ast::Instruction,
-) -> Result<SymbolicInstruction, ParseError<'static>> {
+) -> Result<Instruction, ParseError<'static>> {
     use super::ast::{JumpCondition, OpCode, RealOpCode};
 
     match instruction.opcode {
@@ -223,7 +223,7 @@ pub fn validate_instruction(
                 },
             };
 
-            Ok(SymbolicInstruction::Pseudo(instruction))
+            Ok(Instruction::Pseudo(instruction))
         }
         OpCode::Real(RealOpCode::NoOperation) => {
             if !instruction.operands.is_empty() {
@@ -239,7 +239,7 @@ pub fn validate_instruction(
                 return Err(error);
             }
 
-            Ok(SymbolicInstruction::Real(RealInstruction {
+            Ok(Instruction::Real(RealInstruction {
                 opcode: RealOpCode::NoOperation,
                 operand1: Register::R0,
                 operand2: Default::default(),
@@ -275,7 +275,7 @@ pub fn validate_instruction(
                 return Err(error);
             }
 
-            Ok(SymbolicInstruction::Real(RealInstruction {
+            Ok(Instruction::Real(RealInstruction {
                 opcode,
                 operand1: operand.base.register().unwrap(),
                 operand2: Default::default(),
@@ -305,7 +305,7 @@ pub fn validate_instruction(
 
             let operand = &instruction.operands[0];
 
-            Ok(SymbolicInstruction::Real(RealInstruction {
+            Ok(Instruction::Real(RealInstruction {
                 opcode,
                 operand1: Register::R0,
                 operand2: operand.into(),
@@ -340,7 +340,7 @@ pub fn validate_instruction(
                 return Err(error);
             }
 
-            Ok(SymbolicInstruction::Real(RealInstruction {
+            Ok(Instruction::Real(RealInstruction {
                 opcode,
                 operand1: operand1.base.register().unwrap(),
                 operand2: operand2.into(),
