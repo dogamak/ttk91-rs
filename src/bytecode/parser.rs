@@ -7,7 +7,7 @@ use crate::parsing::{either, BufferedStream, Either, ParseError, Parser as Parse
 use super::token::{Section, Token};
 
 use super::program::{Program, Segment};
-use crate::symbol_table::{Label, SymbolTable, Value};
+use crate::symbol_table::{SymbolTable, Value};
 
 #[derive(Debug)]
 pub enum Context {
@@ -157,10 +157,8 @@ impl<'t> Parser<'t> {
         while let Ok(label) = self.apply(Self::take_label) {
             let address = self.apply(Self::take_number)?;
 
-            let id = table.get_or_create(label.to_string());
-            let sym = table.symbol_mut(id);
+            let sym = table.get_or_create(label.to_string());
             sym.set::<Value>(Some(address));
-            sym.set::<Label>(Some(label.to_string()));
         }
 
         Ok(table)

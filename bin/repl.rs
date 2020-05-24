@@ -263,15 +263,11 @@ impl REPL {
 
         let mut symbol_table = SymbolTable::new();
 
-        let crt = symbol_table.get_or_create("CRT".into());
-        let crt = symbol_table.symbol_mut(crt);
-        crt.set::<Value>(Some(0));
-        crt.set::<Label>(Some("CRT".into()));
+        symbol_table.get_or_create("CRT".into())
+            .set::<Value>(Some(0));
 
-        let crt = symbol_table.get_or_create("HALT".into());
-        let crt = symbol_table.symbol_mut(crt);
-        crt.set::<Value>(Some(11));
-        crt.set::<Label>(Some("HALT".into()));
+        symbol_table.get_or_create("HALT".into())
+            .set::<Value>(Some(11));
 
         let mut emulator = Emulator::new(memory.clone(), StdIo)?;
         emulator.context.pc = 0x8000;
@@ -326,10 +322,7 @@ impl REPL {
                     let addr = symbol.get::<Value>().into_owned();
 
                     if let Some(addr) = addr {
-                        let label = symbol
-                            .get::<Label>()
-                            .into_owned()
-                            .unwrap_or("<UNKNOWN>".to_string());
+                        let label = symbol.get::<Label>();
 
                         let value = match self.memory.get_data(addr as u16) {
                             Ok(value) => value.to_string(),
@@ -448,10 +441,7 @@ impl REPL {
                 if let Some(symbol) = label {
                     let symbol = self.symbol_table.symbol_mut(symbol);
                     symbol.set::<Value>(Some(addr as i32));
-                    let label = symbol
-                        .get::<Label>()
-                        .into_owned()
-                        .unwrap_or("UNKNOWN".into());
+                    let label = symbol.get::<Label>();
                     println!("Symbol {} at address {}", label, addr);
                 }
             }
@@ -465,7 +455,7 @@ impl REPL {
                             .symbol_table
                             .symbol(entry.symbol);
 
-                        let label = symbol.get::<Label>().into_owned().unwrap_or_default();
+                        let label = symbol.get::<Label>().into_owned();
                         
                         let addr = symbol.get::<Value>()
                             .ok_or(Error::UnknownSymbol(label))?;
@@ -484,10 +474,7 @@ impl REPL {
                 if let Some(symbol) = label {
                     let symbol = self.symbol_table.symbol_mut(symbol);
                     symbol.set::<Value>(Some(addr as i32));
-                    let label = symbol
-                        .get::<Label>()
-                        .into_owned()
-                        .unwrap_or("UNKNOWN".into());
+                    let label = symbol.get::<Label>();
                     println!("Symbol {} at address {}", label, addr);
                 }
 

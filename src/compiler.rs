@@ -153,10 +153,7 @@ impl CompileTarget for Program {
 
         println!(
             "Set location: {:?} ({:?}) = {}",
-            sym.get::<Label>()
-                .as_ref()
-                .as_ref()
-                .unwrap_or(&String::new()),
+            sym.get::<Label>().as_str(),
             sym.get::<SymbolId>(),
             addr
         );
@@ -281,12 +278,13 @@ where
 
     let mut target = T::create(symprog.symbol_table);
 
-    let _ = target
-        .symbol_table_mut()
-        .define_symbol(0..0, "CRT".to_string(), 11);
-    let _ = target
-        .symbol_table_mut()
-        .define_symbol(0..0, "HALT".to_string(), 0);
+    let symbol_table = target.symbol_table_mut();
+
+    symbol_table.get_or_create("CRT".into())
+        .set::<Value>(Some(0));
+
+    symbol_table.get_or_create("HALT".into())
+        .set::<Value>(Some(11));
 
     let mut relocation_table = HashMap::<SymbolId, Vec<(T::Location, BytecodeInstruction)>>::new();
 
@@ -345,10 +343,10 @@ where
     for (sym, locs) in relocation_table {
         let sym = target.get_symbol_mut(sym);
 
-        let addr = match sym.get::<Label>().as_ref().as_ref().map(|s| s.as_str()) {
-            Some("CRT") => 0,
-            Some("KBD") => 0,
-            Some("HALT") => 11,
+        let addr = match sym.get::<Label>().as_str() {
+            "CRT" => 0,
+            "KBD" => 0,
+            "HALT" => 11,
             label => {
                 println!("{:?}", sym);
                 let location = sym

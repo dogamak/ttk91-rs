@@ -81,8 +81,8 @@ pub struct SymbolId(usize);
 
 static SYMBOL_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
-impl Default for SymbolId {
-    fn default() -> Self {
+impl SymbolId {
+    fn unique() -> Self {
         SymbolId(SYMBOL_ID_COUNTER.fetch_add(1, Ordering::SeqCst))
     }
 }
@@ -95,6 +95,10 @@ macro_rules! impl_field_type {
         impl $crate::symbol_table::Property for $name {
             const NAME: &'static str = stringify!($name);
             type Value = $value;
+
+            fn default_value() -> Self::Value {
+                Default::default()
+            }
         }
     };
 }
@@ -118,14 +122,17 @@ impl_field_type!(
 );
 
 impl_field_type!(
-    /// Label of the symbol. Every symbol generally has a label, but this invariant is not (yet)
-    /// built into the types.
-    Label, Option<String>
+    /// A human readable label of the symbol as defined in the source code.
+    Label, String
 );
 
 impl Property for SymbolId {
     const NAME: &'static str = "SymbolId";
     type Value = SymbolId;
+
+    fn default_value() -> Self::Value {
+        panic!("symbol without SymbolId should not exist")
+    }
 }
 
 /// Location to which the symbol points to in the binary.
@@ -141,6 +148,10 @@ where
 {
     const NAME: &'static str = "Location";
     type Value = Option<T::Location>;
+
+    fn default_value() -> Self::Value {
+        None
+    }
 }
 
 /// A type that represents a property in a symbol's entry in the [SymbolTable].
@@ -150,12 +161,14 @@ pub trait Property {
 
     /// Type of the value that is stored in this property. The [Default] of the type is used if the
     /// property is not defined for a symbol.
-    type Value: Default + Clone + Debug;
+    type Value: Clone + Debug;
+
+    fn default_value() -> Self::Value;
 }
 
 /// An property entry in a symbol's [SymbolTable] entry.
 ///
-/// This type is a wrapper around [SymbolTableField] and exists so that we can create a trait
+/// This type is a wrapper around [Property] and exists so that we can create a trait
 /// object from it using the trait [SymbolTableEntryTrait].
 struct SymbolTableEntry<F: Property> {
     value: F::Value,
@@ -170,13 +183,13 @@ where
     }
 }
 
-/// Trait for creating a trait object from [SymbolTableEntry]. Essentially a type-erased interface
-/// to [SymbolTableField] and the traits it requires ([Debug] and [Clone]).
+/// Trait for creating a trait object from [Property]. Essentially a type-erased interface
+/// to [Property] and the traits it requires ([Debug] and [Clone]).
 trait SymbolTableEntryTrait {
     /// Clones the internal [SymbolTableEntry] and returns it as a type-erased trait object.
     fn clone(&self) -> Box<dyn SymbolTableEntryTrait>;
 
-    /// Returns the name of the property. Directly from [SymbolTableField::NAME].
+    /// Returns the name of the property. Directly from [Property::NAME].
     fn name(&self) -> &str;
 
     /// Formats the property as a key-value pair.
@@ -229,9 +242,20 @@ where
 /// Provides a typed map API that uses types implementing [Property] as the keys.
 /// Each of these key types has an associated [Value](Property::Value) type, an so the keys
 /// can have values of differing types.
-#[derive(Default)]
 pub struct SymbolInfo {
     map: HashMap<TypeId, Box<dyn SymbolTableEntryTrait>>,
+}
+
+impl SymbolInfo {
+    fn new() -> SymbolInfo {
+        let mut info = SymbolInfo {
+            map: HashMap::new(),
+        };
+
+        info.set::<SymbolId>(SymbolId::unique());
+
+        info
+    }
 }
 
 impl Clone for SymbolInfo {
@@ -268,7 +292,7 @@ impl SymbolInfo {
             // println!("Get ({}) {:?} = {:?}", F::NAME, id, r);
             Cow::Borrowed(r)
         } else {
-            let v = Default::default();
+            let v = F::default_value();
             // println!("Get ({}) {:?} = {:?} (default)", F::NAME, id, v);
             Cow::Owned(v)
         }
@@ -284,7 +308,7 @@ impl SymbolInfo {
             .entry(TypeId::of::<F>())
             .or_insert_with(|| {
                 Box::new(SymbolTableEntry::<F> {
-                    value: Default::default(),
+                    value: F::default_value(),
                 })
             })
             .get_value_mut()
@@ -312,56 +336,21 @@ impl SymbolTable {
         self.inner.values_mut()
     }
 
-    pub(crate) fn define_symbol(
-        &mut self,
-        span: Span,
-        label: String,
-        value: i32,
-    ) -> Result<SymbolId, SymbolId> {
-        if let Some(symbol) = self.inner.get_mut(&*label) {
-            let id = *symbol.get::<SymbolId>();
-
-            if symbol.get::<Defined>().is_some() {
-                return Err(id);
-            }
-
-            symbol.set::<Defined>(Some(span));
-            symbol.set::<Value>(Some(value));
-
-            return Ok(id);
-        }
-
-        let mut symbol = SymbolInfo::default();
-
-        let id = SymbolId::default();
-        symbol.set::<SymbolId>(id);
-
-        symbol.set::<Defined>(Some(span));
-        symbol.set::<Value>(Some(value));
-        symbol.set::<Label>(Some(label.clone()));
-
-        self.inner.insert(label.clone(), symbol);
-        self.id_table.insert(id, label);
-
-        Ok(id)
-    }
-
     /// Returns the [SymbolId] of a symbol with the specified label.
     /// If no such symbol exists, inserts a new symbol into the [SymbolTable] and returns it's
     /// [SymbolId].
-    pub fn get_or_create(&mut self, label: String) -> SymbolId {
-        if let Some(symbol) = self.inner.get(&label) {
-            return symbol.get::<SymbolId>().into_owned();
+    pub fn get_or_create(&mut self, label: String) -> &mut SymbolInfo {
+        if !self.inner.contains_key(&label) {
+            let mut entry = SymbolInfo::new();
+            entry.set::<Label>(label.clone());
+
+            let id = entry.get::<SymbolId>().into_owned();
+
+            self.inner.insert(label.clone(), entry);
+            self.id_table.insert(id, label.clone());
         }
 
-        let mut symbol = SymbolInfo::default();
-        let id = SymbolId::default();
-        symbol.set::<SymbolId>(id);
-
-        self.id_table.insert(id, label.clone());
-        self.inner.insert(label.clone(), symbol);
-
-        id
+        self.inner.get_mut(&label).unwrap()
     }
 
     /// Returns an immutable reference to the symbol denothet by the provided [SymbolId].

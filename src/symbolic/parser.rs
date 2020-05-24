@@ -33,7 +33,7 @@ use crate::parsing::{
     take_token,
 };
 
-use crate::symbol_table::{SymbolTable, SymbolId, References, Label};
+use crate::symbol_table::{SymbolTable, SymbolId, References};
 
 use super::token::Token;
 
@@ -490,20 +490,14 @@ where
     fn take_symbol(&mut self) -> Result<'t, SymbolId> {
         match self.stream_mut().next() {
             Some((Token::Symbol(label), span)) => {
-                let id = self.state
+                let sym = self.state
                     .symbol_table
                     .borrow_mut()
                     .get_or_create(label.to_string());
 
-                let sym = self.state
-                    .symbol_table
-                    .borrow_mut()
-                    .symbol_mut(id);
-
                 sym.get_mut::<References>().push(span);
-                sym.set::<Label>(Some(label.to_string()));
 
-                Ok(id)
+                Ok(sym.get::<SymbolId>().into_owned())
             },
             Some((got, span)) => Err(ParseError::unexpected(span, got, "a symbol".into())),
             None => Err(ParseError::end_of_stream().context("expected a symbol")),
