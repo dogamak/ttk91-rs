@@ -55,11 +55,11 @@ use crate::compiler::CompileTarget;
 /// [Label]. While all symbols have [SymbolId]s, a symbol does not neccessarily have a [Label].
 #[derive(Default, Debug, Clone)]
 pub struct SymbolTable {
-    /// A map that contains the symbols' information. The symbol's [Label] acts as the key.
-    inner: HashMap<String, SymbolInfo>,
+    /// A map that contains the symbols' information. The symbol's [SymbolId] acts as the key.
+    inner: HashMap<SymbolId, SymbolInfo>,
 
-    /// A mapping from [SymbolId]s to the respective symbols' [Label]s.
-    id_table: HashMap<SymbolId, String>,
+    /// A mapping from labels to the respective symbols' [SymbolId]s.
+    label_table: HashMap<String, SymbolId>,
 }
 
 impl std::fmt::Debug for SymbolInfo {
@@ -322,7 +322,7 @@ impl SymbolTable {
     pub fn new() -> Self {
         SymbolTable {
             inner: HashMap::new(),
-            id_table: HashMap::new(),
+            label_table: HashMap::new(),
         }
     }
 
@@ -340,38 +340,47 @@ impl SymbolTable {
     /// If no such symbol exists, inserts a new symbol into the [SymbolTable] and returns it's
     /// [SymbolId].
     pub fn get_or_create(&mut self, label: String) -> &mut SymbolInfo {
-        if !self.inner.contains_key(&label) {
-            let mut entry = SymbolInfo::new();
-            entry.set::<Label>(label.clone());
+        let id = match self.label_table.get(&label) {
+            Some(id) => *id,
+            None => {
+                let mut entry = SymbolInfo::new();
+                entry.set::<Label>(label.clone());
 
-            let id = entry.get::<SymbolId>().into_owned();
+                let id = entry.get::<SymbolId>().into_owned();
 
-            self.inner.insert(label.clone(), entry);
-            self.id_table.insert(id, label.clone());
-        }
+                self.inner.insert(id, entry);
+                self.label_table.insert(label.clone(), id);
 
-        self.inner.get_mut(&label).unwrap()
+                id
+            },
+        };
+
+        self.inner.get_mut(&id).unwrap()
     }
 
     /// Returns an immutable reference to the symbol denothet by the provided [SymbolId].
     pub fn symbol(&self, id: SymbolId) -> &SymbolInfo {
-        let label = self.id_table.get(&id).unwrap();
-        self.inner.get(label).unwrap()
+        self.inner.get(&id).unwrap()
     }
 
     /// Returns a mutable reference to the symbol denothet by the provided [SymbolId].
     pub fn symbol_mut(&mut self, id: SymbolId) -> &mut SymbolInfo {
-        let label = self.id_table.get(&id).unwrap();
-        self.inner.get_mut(label).unwrap()
+        self.inner.get_mut(&id).unwrap()
     }
 
     /// Returns an immutable reference to a symbol with the specified label, if such symbol exists.
     pub fn symbol_by_label<S: AsRef<str>>(&self, label: S) -> Option<&SymbolInfo> {
-        self.inner.get(label.as_ref())
+        match self.label_table.get(label.as_ref()).cloned() {
+            None => None,
+            Some(label) => Some(self.symbol(label)),
+        }
     }
 
     /// Returns a mutable reference to a symbol with the specified label, if such symbol exists.
     pub fn symbol_by_label_mut<S: AsRef<str>>(&mut self, label: S) -> Option<&mut SymbolInfo> {
-        self.inner.get_mut(label.as_ref())
+        match self.label_table.get(label.as_ref()).cloned() {
+            None => None,
+            Some(label) => Some(self.symbol_mut(label)),
+        }
     }
 }
