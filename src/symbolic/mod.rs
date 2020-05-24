@@ -5,4 +5,4 @@ pub mod parser;
 pub mod program;
 pub mod token;
 
-pub use self::program::{InitializationTableEntry, Program};
+pub use self::program::Program;

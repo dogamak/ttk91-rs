@@ -8,13 +8,6 @@ use crate::symbolic::parser::{ErrorKind, Parser};
 use std::fmt;
 
 #[derive(Debug, Clone)]
-pub struct InitializationTableEntry {
-    pub symbol: String,
-    pub size: u16,
-    pub value: i32,
-}
-
-#[derive(Debug, Clone)]
 pub struct PseudoInstruction {
     pub size: u16,
     pub value: i32,
