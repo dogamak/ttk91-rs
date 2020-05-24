@@ -29,7 +29,7 @@ fn test_sum_read_program() {
 
     assert_eq!(
         p.symbol_table
-            .get_symbol_by_label("kbd")
+            .symbol_by_label("kbd")
             .unwrap()
             .get::<Value>()
             .as_ref(),
@@ -37,7 +37,7 @@ fn test_sum_read_program() {
     );
     assert_eq!(
         p.symbol_table
-            .get_symbol_by_label("crt")
+            .symbol_by_label("crt")
             .unwrap()
             .get::<Value>()
             .as_ref(),
@@ -45,7 +45,7 @@ fn test_sum_read_program() {
     );
     assert_eq!(
         p.symbol_table
-            .get_symbol_by_label("summa")
+            .symbol_by_label("summa")
             .unwrap()
             .get::<Value>()
             .as_ref(),
@@ -53,7 +53,7 @@ fn test_sum_read_program() {
     );
     assert_eq!(
         p.symbol_table
-            .get_symbol_by_label("done")
+            .symbol_by_label("done")
             .unwrap()
             .get::<Value>()
             .as_ref(),
@@ -61,7 +61,7 @@ fn test_sum_read_program() {
     );
     assert_eq!(
         p.symbol_table
-            .get_symbol_by_label("sum")
+            .symbol_by_label("sum")
             .unwrap()
             .get::<Value>()
             .as_ref(),
@@ -69,7 +69,7 @@ fn test_sum_read_program() {
     );
     assert_eq!(
         p.symbol_table
-            .get_symbol_by_label("luku")
+            .symbol_by_label("luku")
             .unwrap()
             .get::<Value>()
             .as_ref(),
@@ -77,7 +77,7 @@ fn test_sum_read_program() {
     );
     assert_eq!(
         p.symbol_table
-            .get_symbol_by_label("halt")
+            .symbol_by_label("halt")
             .unwrap()
             .get::<Value>()
             .as_ref(),

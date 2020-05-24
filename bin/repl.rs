@@ -10,11 +10,11 @@ use slog_term::{FullFormat, TermDecorator};
 
 use ttk91::{
     emulator::{Emulator, Memory, StdIo},
-    instruction::{Instruction, Register},
+    instruction::{Instruction as BytecodeInstruction, Register},
     symbol_table::{Label, SymbolTable, Value},
     symbolic::{
         parser::{ParseError, Parser},
-        program::{validate_instruction, RelocationKind, SymbolicInstruction},
+        program::{validate_instruction, RelocationKind, Instruction as SymbolicInstruction},
     },
 };
 
@@ -85,7 +85,7 @@ impl SharedMemory {
         Ok((guard.len() as u16) | 0x8000)
     }
 
-    fn push_instruction(&self, ins: Instruction) -> Result<u16, MemoryError> {
+    fn push_instruction(&self, ins: BytecodeInstruction) -> Result<u16, MemoryError> {
         let mut guard = self.instructions.lock()?;
 
         guard.push(ins.into());
@@ -126,7 +126,7 @@ impl Memory for SharedMemory {
         Ok(())
     }
 
-    fn get_instruction(&mut self, addr: u16) -> Result<Instruction, Self::Error> {
+    fn get_instruction(&mut self, addr: u16) -> Result<BytecodeInstruction, Self::Error> {
         if addr & 0x8000 == 0 {
             return Err(MemoryError::OperationNotAllwed {
                 address: addr,
@@ -140,7 +140,7 @@ impl Memory for SharedMemory {
             Err(_) => Err(MemoryError::ConcurrencyError),
             Ok(guard) => match guard.get(addr as usize) {
                 None => Err(MemoryError::InvalidAddress { address: addr }),
-                Some(word) => match Instruction::try_from(*word) {
+                Some(word) => match BytecodeInstruction::try_from(*word) {
                     Err(_) => Err(MemoryError::InvalidInstruction),
                     Ok(ins) => Ok(ins),
                 },
@@ -264,12 +264,12 @@ impl REPL {
         let mut symbol_table = SymbolTable::new();
 
         let crt = symbol_table.get_or_create("CRT".into());
-        let crt = symbol_table.get_symbol_mut(crt);
+        let crt = symbol_table.symbol_mut(crt);
         crt.set::<Value>(Some(0));
         crt.set::<Label>(Some("CRT".into()));
 
         let crt = symbol_table.get_or_create("HALT".into());
-        let crt = symbol_table.get_symbol_mut(crt);
+        let crt = symbol_table.symbol_mut(crt);
         crt.set::<Value>(Some(11));
         crt.set::<Label>(Some("HALT".into()));
 
@@ -313,7 +313,7 @@ impl REPL {
             ("s", [symbol]) | ("symbol", [symbol]) => {
                 let addr = self
                     .symbol_table
-                    .get_symbol_by_label(symbol)
+                    .symbol_by_label(symbol)
                     .and_then(|sym| sym.get::<Value>().into_owned())
                     .ok_or(Error::UnknownSymbol(symbol.to_string()))?;
 
@@ -367,14 +367,14 @@ impl REPL {
                         println!("{:?}", SymbolicInstruction::Pseudo(ins));
                     }
                     SymbolicInstruction::Real(sins) => {
-                        let mut ins: Instruction = sins.clone().into();
+                        let mut ins: BytecodeInstruction = sins.clone().into();
 
                         match sins.relocation_symbol() {
                             None => {}
                             Some(entry) => {
                                 let addr = self
                                     .symbol_table
-                                    .get_symbol(entry.symbol)
+                                    .symbol(entry.symbol)
                                     .get::<Value>()
                                     .into_owned();
 
@@ -446,7 +446,7 @@ impl REPL {
                 let addr = self.memory.push_data(ins.value)?;
 
                 if let Some(symbol) = label {
-                    let symbol = self.symbol_table.get_symbol_mut(symbol);
+                    let symbol = self.symbol_table.symbol_mut(symbol);
                     symbol.set::<Value>(Some(addr as i32));
                     let label = symbol
                         .get::<Label>()
@@ -456,14 +456,14 @@ impl REPL {
                 }
             }
             SymbolicInstruction::Real(sins) => {
-                let mut ins: Instruction = sins.clone().into();
+                let mut ins: BytecodeInstruction = sins.clone().into();
 
                 match sins.relocation_symbol() {
                     None => {}
                     Some(entry) => {
                         let symbol = self
                             .symbol_table
-                            .get_symbol(entry.symbol);
+                            .symbol(entry.symbol);
 
                         let label = symbol.get::<Label>().into_owned().unwrap_or_default();
                         
@@ -482,7 +482,7 @@ impl REPL {
                 let addr = self.memory.push_instruction(ins.clone())?;
 
                 if let Some(symbol) = label {
-                    let symbol = self.symbol_table.get_symbol_mut(symbol);
+                    let symbol = self.symbol_table.symbol_mut(symbol);
                     symbol.set::<Value>(Some(addr as i32));
                     let label = symbol
                         .get::<Label>()

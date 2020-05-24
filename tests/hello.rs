@@ -23,7 +23,7 @@ fn test_hello_read_program() {
 
     assert_eq!(
         p.symbol_table
-            .get_symbol_by_label("halt")
+            .symbol_by_label("halt")
             .unwrap()
             .get::<Value>()
             .as_ref(),
@@ -31,7 +31,7 @@ fn test_hello_read_program() {
     );
     assert_eq!(
         p.symbol_table
-            .get_symbol_by_label("crt")
+            .symbol_by_label("crt")
             .unwrap()
             .get::<Value>()
             .as_ref(),
@@ -39,7 +39,7 @@ fn test_hello_read_program() {
     );
     assert_eq!(
         p.symbol_table
-            .get_symbol_by_label("x")
+            .symbol_by_label("x")
             .unwrap()
             .get::<Value>()
             .as_ref(),
@@ -47,7 +47,7 @@ fn test_hello_read_program() {
     );
     assert_eq!(
         p.symbol_table
-            .get_symbol_by_label("y")
+            .symbol_by_label("y")
             .unwrap()
             .get::<Value>()
             .as_ref(),
@@ -55,7 +55,7 @@ fn test_hello_read_program() {
     );
     assert_eq!(
         p.symbol_table
-            .get_symbol_by_label("main")
+            .symbol_by_label("main")
             .unwrap()
             .get::<Value>()
             .as_ref(),

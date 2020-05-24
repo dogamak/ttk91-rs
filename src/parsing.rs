@@ -8,17 +8,37 @@ pub type Span = Range<usize>;
 
 pub type ParseError<K, T> = Error<ErrorKind<K, T>, Context>;
 
+/// Common error cases for parsing.  Cases specific to the format being parsed can be defined via
+/// the `K` type parameter.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ErrorKind<K, T> {
+    /// The parser encountered an unexpected end of the input stream.
     EndOfStream,
+
+    /// The parser finished successfully, but there was unconsumed data left in the input stream.
     TrailingInput,
+
+    /// The parser encountered an token which it did not expect.
     UnexpectedToken {
+        /// Location of the token in the input stream.
         span: Span,
+
+        /// List of user facing descriptions of the types of tokens that were expected.
+        ///
+        /// Should contain phrases like `a register` or `an instruction`, that can be used in a
+        /// phrase like `expected [a register] or [an instruction]`.
         expected: Vec<String>,
+
+        /// The token that was unexpectedly encountered.
         got: T,
     },
+
+    /// Parser or format specific error. 
     Other {
+        /// Location where the error occurred.
         span: Span,
+
+        /// Type of the error. Usually an enum.
         kind: K,
     },
 }
@@ -57,6 +77,7 @@ where
 }
 
 impl<K, T> ParseError<K, T> {
+    /// Creates a new [ParseError] with the kind [ErrorKind::EndOfStream].
     pub fn end_of_stream() -> ParseError<K, T> {
         Error {
             kind: ErrorKind::EndOfStream,
@@ -64,6 +85,7 @@ impl<K, T> ParseError<K, T> {
         }
     }
 
+    /// Creates a new [ParseError] with the kind [ErrorKind::UnexpectedToken].
     pub fn unexpected(span: Span, got: T, expected: String) -> ParseError<K, T> {
         Error {
             kind: ErrorKind::UnexpectedToken {
@@ -75,6 +97,9 @@ impl<K, T> ParseError<K, T> {
         }
     }
 
+    /// Creates a new [ParseError] from an parser of format specific error type.
+    /// The returned parse error will have a kind of [ErrorKind::Other], with the
+    /// [kind](ErrorKind::Other::kind) set to the provided value.
     pub fn other(span: Span, kind: K) -> ParseError<K, T> {
         Error {
             kind: ErrorKind::Other { span, kind },
@@ -82,6 +107,7 @@ impl<K, T> ParseError<K, T> {
         }
     }
 
+    /// Returns the location of the error relative to the start of the input stream if known.
     pub fn span(&self) -> Option<&Span> {
         match self.kind {
             ErrorKind::EndOfStream => None,
@@ -92,10 +118,20 @@ impl<K, T> ParseError<K, T> {
     }
 }
 
+/// Context type for parsing errors.
 #[derive(Debug, Clone)]
 pub enum Context {
+    /// Context information directly relating to the error itself.
     Error { message: String },
-    Suggestion { span: Span, message: String },
+
+    /// Information displayed to the user, but not directly relating to the error itself.
+    Suggestion {
+        /// Location in the input stream to which this message relates to.
+        span: Span,
+
+        /// An user facing message.
+        message: String,
+    },
 }
 
 impl From<&str> for Context {
@@ -121,10 +157,19 @@ impl ErrorContext for Context {
     }
 }
 
+/// A stream that supports seeking.
 pub trait SeekStream: Iterator {
+    /// Returns the distance from the start of the stream to the current cursor position.
     fn offset(&self) -> usize;
+
+    /// Moves the cursor position in the stream by `amount` items.
     fn seek(&mut self, amount: isize);
+
+    /// Returns the range in which the stream's cursor can move safely.
     fn seek_boundary(&self) -> Range<isize>;
+
+    /// Returns a reference to the item at the defined offset from the stream's start, if such
+    /// offset exists in the stream.
     fn at_offset(&self, offset: isize) -> Option<&Self::Item>;
 }
 
@@ -167,9 +212,16 @@ impl<I> SeekStream for &mut dyn SeekStream<Item = I> {
     }
 }
 
+/// An adapter that can be used to create [SeekStream]s from any type implementing the [Iterator]
+/// trait.
 pub struct BufferedStream<S: Iterator> {
+    /// The original iterator from which new items are taken.
     stream: S,
+
+    /// The cursor's position in the stream and the [buffer](BufferedStream::buffer).
     position: usize,
+
+    /// List of all items take from the iterator, in order.
     buffer: Vec<S::Item>,
 }
 
@@ -177,15 +229,20 @@ impl<S> BufferedStream<S>
 where
     S: Iterator,
 {
+    /// Resets the streams cursor back to the start of the stream.
     pub fn reset(&mut self) {
         self.position = 0;
     }
 
-    pub fn buffer_mut(&mut self) -> &mut Vec<S::Item> {
+    // TODO: Safer API for this.
+    /// Returns an mutable reference to the stream's internal buffer.
+    pub(crate) fn buffer_mut(&mut self) -> &mut Vec<S::Item> {
         &mut self.buffer
     }
 
-    pub fn remove_token(&mut self, index: usize) -> S::Item {
+    /// Removes a token at the specified offset from the buffer.
+    /// Updates the stream's cursor location if needed.
+    pub(crate) fn remove_token(&mut self, index: usize) -> S::Item {
         if index < self.position {
             self.position -= 1;
         }
@@ -263,12 +320,20 @@ where
     }
 }
 
+/// Trait which provides convinience methods for parsers operating on [SeekStream]s of tokens and
+/// their [Span]s.
 pub trait Parser<T> {
+    /// The token stream type on which the parser operates.
     type Stream: SeekStream<Item = (T, Span)>;
 
+    /// Returns an immutable reference to the stream.
     fn stream(&self) -> &Self::Stream;
+
+    /// Returns a mutable reference to the stream.
     fn stream_mut(&mut self) -> &mut Self::Stream;
 
+    /// Returns the start offset of the next token. Can be used together with
+    /// [Parser::boundary_left] to find the span of a token stream.
     fn boundary_right(&mut self) -> usize {
         let stream = self.stream_mut();
 
@@ -281,11 +346,15 @@ pub trait Parser<T> {
         }
     }
 
+    /// Returns the ending offset of the previous token. Can be used together with
+    /// [Parser::boundary_right] to find the span of a token stream.
     fn boundary_left(&mut self) -> usize {
         let stream = self.stream_mut();
         stream.at_offset(-1).map(|t| (t.1).end).unwrap_or(0)
     }
 
+    /// Applies the given parsing operation to the token stream, returning it's result.
+    /// If the operation fails, reverts the token stream to its original position.
     fn apply<P, O, C>(&mut self, op: P) -> Result<O, ParseError<C, T>>
     where
         Self: Sized,
@@ -306,6 +375,8 @@ pub trait Parser<T> {
         result
     }
 
+    /// Consumes the specified token from the token stream and returns it.
+    /// If the next token in the stream is not the wanted token, returns an error.
     fn take_token<X>(&mut self, token: T) -> Result<T, ParseError<X, T>>
     where
         T: std::fmt::Display + PartialEq,
@@ -314,6 +385,8 @@ pub trait Parser<T> {
         self.apply(take_token(token))
     }
 
+    /// Consumes the specified token from the token stream.
+    /// If the next token in the stream is not the wanted token, returns an error.
     fn assert_token<X>(&mut self, token: T) -> Result<(), ParseError<X, T>>
     where
         T: std::fmt::Display + PartialEq,
@@ -338,6 +411,9 @@ where
     }
 }
 
+/// A parsing operation.
+/// Basically a function of the type `FnOnce(&mut Parser) -> Result<Output, ParseError<Kind,
+/// Token>>`.
 pub trait Operation<Parser, Output, Kind, Token> {
     fn call<'a>(self, parser: &'a mut Parser) -> Result<Output, ParseError<Kind, Token>>;
 }
@@ -351,6 +427,8 @@ where
     }
 }
 
+/// A parsing operation which consumes a specific token from the token stream or returns an error
+/// if the next token in the stream is not what was specified.
 pub struct AssertToken<T>(T);
 
 impl<P, K, T> Operation<P, (), K, T> for AssertToken<T>
@@ -377,10 +455,13 @@ where
     }
 }
 
+/// A convinience function that creates an [AssertToken] operation.
 pub fn assert_token<T>(token: T) -> AssertToken<T> {
     AssertToken(token)
 }
 
+/// A parsing operation which consumes a specific token from the token stream and returns the
+/// token.  If the next token in the stream is not what was specified, returns an error.
 pub struct TakeToken<T>(T);
 
 impl<P, T, X> Operation<P, T, X, T> for TakeToken<T>
@@ -407,72 +488,25 @@ where
     }
 }
 
+/// A convinience function that creates a [TakeToken] operation.
 pub fn take_token<T>(token: T) -> TakeToken<T> {
     TakeToken(token)
 }
 
-/*pub(crate) trait ParseExt<T> {
-    fn apply<P,R,C>(&mut self, parser: P) -> Result<R, ParseError<C,T>>
-    where
-        P: FnOnce(&mut dyn SeekStream<Item=T>) -> Result<R, ParseError<C,T>>;
-
-    fn assert(&mut self, item: T) -> bool where T: PartialEq;
-}*/
-
-/*impl<I> ParseExt<I> for &mut dyn SeekStream<Item=I>
-{
-    fn apply<P,R,C>(&mut self, parser: P) -> Result<R, Error<C>>
-    where
-        P: FnOnce(&mut dyn SeekStream<Item=I>) -> Result<R, Error<C>>
-    {
-        let position = self.offset() as isize;
-
-        let result = parser(*self);
-
-        if result.is_err() {
-            let delta = position - self.offset() as isize;
-            self.seek(delta);
-        }
-
-        result
-    }
-}*/
-
-/*impl<S> ParseExt<S::Item> for S where S: SeekStream,
-{
-    fn apply<P,R,C>(&mut self, parser: P) -> Result<R, Error<C>>
-    where
-        P: FnOnce(&mut dyn SeekStream<Item=S::Item>) -> Result<R, Error<C>>
-    {
-        let position = self.offset() as isize;
-
-        let result = parser(self);
-
-        if result.is_err() {
-            let delta = position - self.offset() as isize;
-            self.seek(delta);
-        }
-
-        result
-    }
-
-    fn assert(&mut self, item: S::Item) -> bool where S::Item: PartialEq {
-        match self.next() {
-            None => false,
-            Some(t) if t == item => true,
-            Some(_) => {
-                self.seek(-1);
-                false
-            },
-        }
-    }
-}*/
-
+/// An enum that contains either one of the two types `L` and `R`.
 pub enum Either<L, R> {
     Left(L),
     Right(R),
 }
 
+/// Tries both provided parsing operations and returns the result of the one that succeeds.
+/// If neither of the operations succeeds, tries to be clever about the error message that it
+/// returns.
+/// 
+/// In a case where an error is returned, this operation returns the error of the operation that
+/// made if furthest in the token stream before failing.  If both operations failed at the same
+/// token, this operation joins both operations' error messages, given that they were of the
+/// [ErrorKind::UnexpectedToken] type.
 pub fn either<P1, P2, R1, R2, K, P, T>(
     parser1: P1,
     parser2: P2,

@@ -1,7 +1,4 @@
 //! Functions for parsing symbolic assembly programs from strings.
-//!
-//! The only function you problaly are interested in here is [parse_symbolic_file], which
-//! you probably want to use via [Program::parse](crate::symbolic::Program::parse).
 
 use slog::{Logger, Discard, trace, o};
 
@@ -40,15 +37,27 @@ use crate::symbol_table::{SymbolTable, SymbolId, References, Label};
 
 use super::token::Token;
 
+/// Error kinds specific to parsing the symbolic TTK91 assembly format.
 #[derive(Debug, Clone)]
 pub enum ErrorKind {
+    /// An invalid number of operands were provided for an instruction.
     OperandCount {
+        /// Location of the errorneous instruction in the input stream.
         span: Span,
+
+        /// The expected number of operands for this instruction type.
         expected: usize,
+
+        /// The number of instructions provided in the input stream.
         got: usize,
     },
+
+    /// An operand of invalid type was provided for an instruction.
     InvalidOperand {
+        /// Location of the errorneous operand in the input stream.
         span: Span,
+
+        /// The number of the operand.
         index: usize,
     },
 }
@@ -64,7 +73,10 @@ impl fmt::Display for ErrorKind {
     }
 }
 
+/// An error which has occurred while parsing a symbolic TTK91 program.
 pub type ParseError<'t> = crate::parsing::ParseError<ErrorKind, Token<'t>>;
+
+/// The [Result] type of symbolic TTK91 format parsing operations.
 pub type Result<'t, T> = std::result::Result<T, ParseError<'t>>;
 
 impl<'a, T> ParserTrait<Token<'a>> for Parser<'a, T> {
@@ -79,18 +91,28 @@ impl<'a, T> ParserTrait<Token<'a>> for Parser<'a, T> {
     }
 }
 
+/// The state of the parser.
 #[derive(Default)]
 pub struct State<T> {
+    /// Symbol table containing information about all symbols encountered in the input stream so
+    /// far.
     pub symbol_table: T,
 }
 
+/// Type for parsing symbolic TTK91 programs.
 pub struct Parser<'a, T=SymbolTable> {
+    /// A logger to which debugging information is logged during parsing.
     logger: Logger,
+
+    /// The input token stream on which the parser operates.
     stream: BufferedStream<logos::SpannedIter<'a, Token<'a>>>,
+
     pub state: State<T>,
 }
 
 impl<'a> Parser<'a, SymbolTable> {
+    /// Runs the provided input string through a tokenizer and creates a parser from the resulting
+    /// tokens stream.
     pub fn from_str(input: &'a str) -> Self {
         let lex = Token::lexer(input);
         let stream = BufferedStream::from(lex.spanned());
@@ -104,6 +126,7 @@ impl<'a> Parser<'a, SymbolTable> {
 }
 
 impl<'a, T> Parser<'a, T> {
+    /// Replaces the parser's symbol table with the provided one.
     pub fn with_symbol_table<T2>(self, symbol_table: T2) -> Parser<'a, T2> {
         Parser {
             logger: self.logger,
@@ -112,6 +135,7 @@ impl<'a, T> Parser<'a, T> {
         }
     }
 
+    /// Sets the [Logger] used by the [Parser] to the provided one.
     pub fn set_logger(&mut self, logger: &Logger) {
         self.logger = logger.new(o!("parsing" => true));
     }
@@ -279,6 +303,7 @@ enum IterativeParsingResult<T,E> {
 }
 
 impl<'t> Parser<'t, SymbolTable> {
+    /// Parses a single instruction from the input stream.
     pub fn parse_instruction(input: &'t str) -> Result<Instruction> {
         Parser::<SymbolTable>::from_str(input)
             .apply(Parser::take_instruction)
@@ -289,7 +314,7 @@ impl<'t, T> Parser<'t, T>
 where
     T: std::borrow::BorrowMut<SymbolTable>,
 {
-    /// Parse a single line of assembly.
+    /// Parse a single line of assembly. This includes a possible label and an instruction.
     pub fn parse_line(&mut self)
         -> Result<'t, (Option<SymbolId>, Instruction)>
     {
@@ -473,7 +498,7 @@ where
                 let sym = self.state
                     .symbol_table
                     .borrow_mut()
-                    .get_symbol_mut(id);
+                    .symbol_mut(id);
 
                 sym.get_mut::<References>().push(span);
                 sym.set::<Label>(Some(label.to_string()));
@@ -567,6 +592,7 @@ where
         })
     }
 
+    /// Takes an [OpCode] from the input stream.
     pub fn take_opcode(&mut self) -> Result<'t, OpCode> {
         match self.stream_mut().next() {
             Some((Token::RealOperator(op), _span)) => Ok(OpCode::Real(op)),
@@ -610,6 +636,7 @@ where
         })
     }
 
+    /// Takes any number of labels and an instruction from the input stream.
     fn take_part(&mut self) -> Result<'t, Option<Part>> {
         let mut labels = Vec::new();
 

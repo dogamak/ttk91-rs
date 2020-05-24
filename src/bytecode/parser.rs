@@ -158,7 +158,7 @@ impl<'t> Parser<'t> {
             let address = self.apply(Self::take_number)?;
 
             let id = table.get_or_create(label.to_string());
-            let sym = table.get_symbol_mut(id);
+            let sym = table.symbol_mut(id);
             sym.set::<Value>(Some(address));
             sym.set::<Label>(Some(label.to_string()));
         }

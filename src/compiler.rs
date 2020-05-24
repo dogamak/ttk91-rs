@@ -149,7 +149,7 @@ impl CompileTarget for Program {
             addr += self.code.content.len();
         }
 
-        let sym = self.symbol_table.get_symbol_mut(id);
+        let sym = self.symbol_table.symbol_mut(id);
 
         println!(
             "Set location: {:?} ({:?}) = {}",
@@ -165,7 +165,7 @@ impl CompileTarget for Program {
     }
 
     fn get_symbol_mut(&mut self, label: SymbolId) -> &mut SymbolInfo {
-        self.symbol_table.get_symbol_mut(label)
+        self.symbol_table.symbol_mut(label)
     }
 
     fn to_address(&self, loc: &Self::Location) -> u16 {
@@ -314,7 +314,7 @@ where
                     trace!(loc_log, "add a label to the symbol table"; "symbol" => ?symbol);
                     target
                         .symbol_table_mut()
-                        .get_symbol_mut(symbol)
+                        .symbol_mut(symbol)
                         .set::<Location<T>>(Some(loc.clone()));
                     target.set_symbol(symbol, &loc);
                 }
@@ -330,7 +330,7 @@ where
                     trace!(loc_log, "add a label to the symbol table"; "symbol" => ?symbol);
                     target
                         .symbol_table_mut()
-                        .get_symbol_mut(symbol)
+                        .symbol_mut(symbol)
                         .set::<Location<T>>(Some(loc.clone()));
                     target.set_symbol(symbol, &loc);
                 }
