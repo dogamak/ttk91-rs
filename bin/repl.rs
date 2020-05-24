@@ -323,18 +323,21 @@ impl REPL {
             }
             ("symbols", _) => {
                 for symbol in self.symbol_table.iter() {
-                    let addr = symbol.get::<Value>().into_owned().unwrap_or(0);
-                    let label = symbol
-                        .get::<Label>()
-                        .into_owned()
-                        .unwrap_or("<UNKNOWN>".to_string());
+                    let addr = symbol.get::<Value>().into_owned();
 
-                    let value = match self.memory.get_data(addr as u16) {
-                        Ok(value) => value.to_string(),
-                        Err(_) => "#ERROR#".to_string(),
-                    };
+                    if let Some(addr) = addr {
+                        let label = symbol
+                            .get::<Label>()
+                            .into_owned()
+                            .unwrap_or("<UNKNOWN>".to_string());
 
-                    println!("Symbol '{}' @ {:x} = {}", label, addr, value);
+                        let value = match self.memory.get_data(addr as u16) {
+                            Ok(value) => value.to_string(),
+                            Err(_) => "#ERROR#".to_string(),
+                        };
+
+                        println!("Symbol '{}' @ {:x} = {}", label, addr, value);
+                    }
                 }
             }
             ("regs", _) | ("registers", _) => {
@@ -458,11 +461,14 @@ impl REPL {
                 match sins.relocation_symbol() {
                     None => {}
                     Some(entry) => {
-                        let addr = self
+                        let symbol = self
                             .symbol_table
-                            .get_symbol(entry.symbol)
-                            .get::<Value>()
-                            .expect("expected a symbol to have an address");
+                            .get_symbol(entry.symbol);
+
+                        let label = symbol.get::<Label>().into_owned().unwrap_or_default();
+                        
+                        let addr = symbol.get::<Value>()
+                            .ok_or(Error::UnknownSymbol(label))?;
 
                         let imm = match entry.kind {
                             RelocationKind::Address => addr as u16,
