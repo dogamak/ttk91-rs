@@ -17,10 +17,9 @@
 //! essentially a typed [HashMap] with types implementing [Property] as the keys. The types
 //! of the values in the map is determined by the key's [Property::Value] associated type.
 //!
-//! The values stored in [SymbolInfo] are required to implement [Default] because the default value
-//! is returned whenever a property's value is queried, but it is not defined. The [Default] trait
-//! is implemented for [Option] and so if a property has a value of `Option<V>`, it has
-//! automatically an implementation for [Default]. Most of the properties use this pattern.
+//! Queries of properties never fail and if the property has not been defined for the symbol in
+//! question, the query operations return a default value. This default value is determined by the
+//! [Property::default_value] method.
 //!
 //! # What proerties can a symbol have?
 //!
@@ -87,6 +86,18 @@ impl SymbolId {
     }
 }
 
+/// Macro for creating an unit struct and implementing [Property] for it.
+///
+/// # Example
+/// ```
+/// # struct TypeOfValue;
+///
+/// impl_field_type! {
+///     /// A documentation for the property.
+///     #[derive(Debug, Clone)]
+///     PropertyName, TypeOfValue
+/// }
+/// ```
 macro_rules! impl_field_type {
     ($(#[$attrs:meta])* $name:ident, $value:ty ) => {
         $(#[$attrs])*
@@ -159,10 +170,11 @@ pub trait Property {
     /// Human readable name of the property that is used only for debugging purposes.
     const NAME: &'static str;
 
-    /// Type of the value that is stored in this property. The [Default] of the type is used if the
-    /// property is not defined for a symbol.
+    /// Type of the value that is stored in this property.
     type Value: Clone + Debug;
 
+    /// If the value of this property is queried on an symbol for which it is not specidied,
+    /// this method is called to determine the default value for this property.
     fn default_value() -> Self::Value;
 }
 
