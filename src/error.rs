@@ -1,3 +1,5 @@
+//! Common error handling functionality.
+
 use std::fmt;
 
 /// Trait for formatting error context types.

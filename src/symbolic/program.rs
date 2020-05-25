@@ -1,3 +1,7 @@
+//! Validated representation of a program written in the symbolic format.
+//!
+//! This module contains types that represent the various parts of an program in a way that makes
+//! representing invalid programs impossible (or at least tries).
 use super::parser::ParseError;
 use crate::compiler::SourceMap;
 use crate::instruction::{Instruction as BytecodeInstruction, Mode, OpCode, Register};

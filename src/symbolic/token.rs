@@ -1,43 +1,61 @@
+//! Tokens and a tokenizer for the symbolic formats.
+
 use logos::{Lexer, Logos};
 
 use std::fmt;
 
 use super::ast::{JumpCondition, PseudoOpCode, RealOpCode, Register};
 
+/// Enumeration of all tokens of the symbolic format.
 #[derive(Logos, Debug, PartialEq, Clone)]
 pub enum Token<'a> {
+    /// Errorneous token that could not be interpreted as any of the other variants.
     #[error]
     #[regex(r"[ \n\t\r\f]", logos::skip)]
     #[regex(r";[^\n]*", logos::skip)]
     Error,
 
+    /// A register. `R1`-`R7`, `SP` or `FP`.
     #[regex("R[1-7]|SP|FP", |lex| lex.slice().parse())]
     Register(Register),
 
+    /// A symbol which begins with a letter and can contain the characters `A-Za-z0-9_`.
     #[regex("[A-Za-z][A-Za-z0-9_]*", Lexer::slice)]
     Symbol(&'a str),
 
+    /// A real operator that has a bytecode representation.
     #[regex("(?i)nop|store|load|in|out|add|sub|mul|div|mod|and|or|xor|shl|shr|not|comp|call|exit|push|pop|pushr|popr|svc|jump|jzer|jnzer|jpos|jnpos|jneg|jnneg|jequ|jnequ|jles|jnles|jgre|jngre", operator_callback)]
     RealOperator(RealOpCode),
 
+    /// A pseudo operator that is handled by the preprocessor or the compiler.
     #[regex("(?i)dc|ds|equ", pseudo_operator_callback)]
     PseudoOperator(PseudoOpCode),
 
+    /// Token (`@`) that is used to specify that an operand uses the
+    /// [Indirect](crate::instruction::Mode::Indirect) addressing mode.
     #[token("@")]
     IndirectModifier,
 
+    /// Token (`=`) that is used to specify that an operand uses the
+    /// [Immediate](crate::instruction::Mode::Immediate) addressing mode.
     #[token("=")]
     ImmediateModifier,
 
+    /// Token (`,`) that is used to separate operands of a single instruction.
     #[token(",")]
     ParameterSeparator,
 
+    /// Token (`(`) that is used in the index register construct that is part of an operand. (Eg.
+    /// `ARR(R3)`).
     #[token("(")]
     IndexBegin,
 
+    /// Token (`)`) that is used in the index register construct that is part of an operand. (Eg.
+    /// `ARR(R3)`).
     #[token(")")]
     IndexEnd,
 
+    /// A signed number literal.
     #[regex("-?[0-9]+", literal_callback)]
     Literal(i32),
 }

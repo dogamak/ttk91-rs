@@ -1,3 +1,5 @@
+//! Types and traits for common parsing functionality.
+
 use std::fmt;
 use std::fmt::Write;
 use std::ops::Range;

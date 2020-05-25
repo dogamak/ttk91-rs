@@ -1,13 +1,25 @@
+//! Lexer and an enumeration of the tokens that make up the bytecode format.
+
 use logos::Logos;
 use std::fmt;
 use std::str::FromStr;
 
+/// A section header.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Section {
+    /// Start of the bytecode file.
     Start,
+
+    /// End of the bytecode file.
     End,
+
+    /// Start of the code section.
     Code,
+
+    /// Start of the data section.
     Data,
+
+    /// Start of the symbol table section.
     SymbolTable,
 }
 
@@ -38,18 +50,24 @@ impl FromStr for Section {
     }
 }
 
+/// Enumeration of the all possible token.
 #[derive(Logos, Debug, Clone, PartialEq)]
 pub enum Token<'t> {
+    /// An errorneous token that cannot be interpreted as any of the other tokens.
     #[error]
     #[regex(r"[ \t\f\r\n]+", logos::skip)]
     Error,
 
+    /// A section header that starts and ends with three underscores.
     #[regex("___(b91|code|data|symboltable|end)___", |lex| lex.slice().parse())]
     Section(Section),
 
+    /// A signed number literal.
     #[regex("-?[0-9]+", |lex| lex.slice().parse())]
     Number(i32),
 
+    /// A symbol that begins with a letter or an underscore and can contain the characters
+    /// `A-Za-z0-9_`.
     #[regex("(?i)[a-z_][a-z0-9_]*")]
     Symbol(&'t str),
 }
