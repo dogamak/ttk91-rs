@@ -1,27 +1,11 @@
-//! A create for doing anything related to the imaginary TTK91 instruction architecture used in
-//! teaching at University of Helsinki.
+//! A create for doing everyting related to the TTK91 instruction architecture used for
+//! teaching computer organisation at University of Helsinki.
 //!
 //! Currently this crate provides the functionality to:
-//! - Read and write `.b91` files containing TTK91 bytecode.
-//! - Read and write `.k91` files containing TTK91 symbolic assembly.
+//! - Read `.b91` files containing TTK91 bytecode.
+//! - Read `.k91` files containing TTK91 symbolic assembly.
 //! - Compile bytecode from symbolic TTK91 assembly.
 //! - Execute bytecode.
-//!
-//! # Future plans
-//!
-//! - `ttk91run` and `ttk91compile` executables
-//! - WebAssembly interface for GUI
-//! - Translating TTK91 bytecode into x86 instructions
-//!   - Writing them to a `.o` file for linking
-//! - Go above and beyond the original TTK91
-//!   - String variables
-//!   - Interruptions
-//!   - Assembler macros
-//! - Multiple crates? (`ttk91`, `ttk91-emulator`, `ttk91-wasm`)
-//!
-//! # Unimplemented stuff
-//! - Stack and related instructions (`PUSH`, `POP`, `CALL`, `EXIT`, `PUSHR`, `POPR`)
-//! - Labels for instructions in `ttk91repl`
 //!
 //! # Example
 //! ```
@@ -65,6 +49,10 @@
 //!
 //! # Executables
 //!
+//! This crate comes with multiple command-line utilities.
+//! These utilities can be enables with the `tools` feature or individually with the `ttk91repl`
+//! and `ttk91run` features.
+//!
 //! ## `ttk91repl`
 //!
 //! The `ttk91repl` provides a Read-Execute-Print-Loop environment for the TTK91 symbolic assembly
@@ -87,7 +75,16 @@
 //! ```
 //!
 //! ## `ttk91run`
-//! ## `ttk91compile`
+//!
+//! The `ttk91run` command-line tool is capable of emulating TTK91 programs in both the symbolic
+//! and the bytecode formats.
+//!
+//! ```
+//! $ ttk91run tests/hello.k91
+//! 28
+//! $ ttk91run tests/hello.b91
+//! 28
+//! ```
 pub mod bytecode;
 pub mod compiler;
 pub mod emulator;

@@ -15,7 +15,7 @@ for doing these tasks from the command-line. The [`ttk91-wasm`](https://github.c
 
 ## Features
 
-- Parse files containing TTK91 bytecode and assembly
+- Parse TTK91 programs from both the symbolic and the bytecode formats
 - Compile symbolic assembly into bytecode
 - Generate source map for the bytecode
 - Execute bytecode
@@ -61,13 +61,17 @@ fn main() {
 }
 ```
 
+# Command-line Utilities
 
-## Command-line utilities
+This crate comes with multiple command-line utilities.
+These utilities can be enables with the `tools` feature or individually with the `ttk91repl`
+and `ttk91run` features.
 
-### `ttk91repl`
+## `ttk91repl`
+
 The `ttk91repl` provides a Read-Execute-Print-Loop environment for the TTK91 symbolic assembly
 language. It supports alternating between writing and executing code and provides multiple
-commands suitable for debugging both TTK91 programs and the emulator itself.
+commands suitable for debugging.
 
 ```text
 0x8000> LOAD  R1, =5
@@ -81,15 +85,17 @@ Register R1 = 5
 3
 2
 1
-0x8004> 
+0x8004>
 ```
 
-### `ttk91run`
-Runs TTK91 programs with input and output piped to standard streams.
-If the supplied file contains assembly, compiles it to bytecode before executing it.
+## `ttk91run`
 
-```shell
+The `ttk91run` command-line tool is capable of emulating TTK91 programs in both the symbolic
+and the bytecode formats.
+
+```
+$ ttk91run tests/hello.k91
+28
 $ ttk91run tests/hello.b91
 28
 ```
-
