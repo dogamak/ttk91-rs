@@ -79,7 +79,7 @@
 //! The `ttk91run` command-line tool is capable of emulating TTK91 programs in both the symbolic
 //! and the bytecode formats.
 //!
-//! ```
+//! ```text
 //! $ ttk91run tests/hello.k91
 //! 28
 //! $ ttk91run tests/hello.b91
