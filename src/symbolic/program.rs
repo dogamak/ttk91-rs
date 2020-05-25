@@ -7,22 +7,33 @@ use crate::symbolic::parser::{ErrorKind, Parser};
 
 use std::fmt;
 
+/// An instruction for the preprocessor or the compiler.
+///
+/// This type can only represent valid instructions.
 #[derive(Debug, Clone)]
 pub struct PseudoInstruction {
     pub size: u16,
     pub value: i32,
 }
 
+/// An instruction, which can be either a pseudo instruction or a real instruction.
 #[derive(Debug, Clone)]
 pub enum Instruction {
     Real(RealInstruction),
     Pseudo(PseudoInstruction),
 }
 
+/// Opcode of a pseudo instruction.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PseudoOpCode {
+    /// Data Constant. Reserves a single word of data and sets it to the provided value.
     DC,
+
+    /// Data Segment. Reserves the specified number of words of memory. Initializes the words to
+    /// zero.
     DS,
+
+    /// Equals. Defines a symbol with the specified value.
     EQU,
 }
 
@@ -36,6 +47,7 @@ impl fmt::Display for PseudoOpCode {
     }
 }
 
+/// A single instruction and any number of associated labels.
 #[derive(Clone, Debug)]
 pub struct InstructionEntry {
     pub labels: Vec<SymbolId>,
@@ -43,16 +55,38 @@ pub struct InstructionEntry {
     pub span: Option<Span>,
 }
 
+/// An entire program parsed from a symbolic format.
+///
+/// This type represents a validated program, whose all instructions are quaranteed to be valid.
 #[derive(Debug, Default, Clone)]
 pub struct Program {
+    /// List of instructions and labels assigned to them.
     pub instructions: Vec<InstructionEntry>,
+
+    /// The symbol table created during parsing.
+    ///
+    /// At this stage the symbol table contains no information about the symbols, besides locations
+    /// of their definitions and references in the input file.
     pub symbol_table: SymbolTable,
 }
 
+/// A real instruction that can be executed by the [Emulator](crate::emulator::Emulator) and has a
+/// bytecode representation.
 #[derive(Debug, Clone)]
 pub struct RealInstruction {
+    /// Opcode specifying the type of the instruction.
     pub opcode: OpCode,
+
+    /// First operand of the instruction.
+    ///
+    /// This operand is always an register, but is set to the special register [R0](Register::R0)
+    /// for instruction that do not utilize it.
     pub operand1: Register,
+
+    /// The second operand of the instruction.
+    ///
+    /// For instructions that do not utilize the second operand, this is set to the [Default] value
+    /// of [SecondOperand].
     pub operand2: SecondOperand,
 }
 
@@ -105,6 +139,7 @@ pub struct RelocationEntry {
     pub kind: RelocationKind,
 }
 
+/// A base value that can be passed to an instruction as it's second operand.
 #[derive(Clone, Debug)]
 pub enum Value {
     Symbol(SymbolId),
@@ -113,6 +148,7 @@ pub enum Value {
 }
 
 impl Value {
+    /// Return true if self represents the [Value::Immediate] variant.
     pub fn is_immediate(&self) -> bool {
         match self {
             Value::Immediate(_) => true,
@@ -120,6 +156,7 @@ impl Value {
         }
     }
 
+    /// Return true if self represents the [Value::Register] variant.
     pub fn is_register(&self) -> bool {
         match self {
             Value::Register(_) => true,
@@ -127,6 +164,8 @@ impl Value {
         }
     }
 
+    /// If self represents the [Value::Register] variant, returns the wrapped register.
+    /// Otherwise returns `None`.
     pub fn register(&self) -> Option<Register> {
         match self {
             Value::Register(reg) => Some(*reg),
@@ -135,10 +174,17 @@ impl Value {
     }
 }
 
+/// The second operand of an instruction.
 #[derive(Clone, Debug)]
 pub struct SecondOperand {
+    /// The addressing mode used for this operand.
     pub(crate) mode: Mode,
+
+    /// The base value for this operand.
     pub(crate) value: Value,
+
+    /// An optional index register whose value is added to the base value before address
+    /// resolution.
     pub(crate) index: Option<Register>,
 }
 
@@ -172,6 +218,11 @@ impl Default for SecondOperand {
     }
 }
 
+/// Validates the provided [ast::Instruction](super::ast::Instruction) and converts it to an
+/// [Instruction].
+///
+/// This function mainly makes sure that the instruction has been provided with the right amount of
+/// operands and that the operands are of the correct type.
 pub fn validate_instruction(
     instruction: super::ast::Instruction,
 ) -> Result<Instruction, ParseError<'static>> {
@@ -350,6 +401,8 @@ pub fn validate_instruction(
 }
 
 impl Program {
+    /// Reads, parses and validates an program from a string slice. Returns immediately on the
+    /// first encountered parsing error.
     pub fn parse(input: &str) -> Result<Program, ParseError> {
         let mut parser = Parser::from_str(input);
         let ast = parser.parse()?;
@@ -372,6 +425,8 @@ impl Program {
         })
     }
 
+    /// Reads, parses and validates an program from a string slice. Tries to produce the best
+    /// possible error messages and spends extra time on this if the parsing fails.
     pub fn parse_verbose(input: &str) -> Result<Program, Vec<ParseError>> {
         let mut parser = Parser::from_str(input);
 
@@ -406,11 +461,14 @@ impl Program {
         })
     }
 
+    /// Compiles the program into internal representation of bytecode that is ready to be emulated.
     pub fn compile(self) -> crate::bytecode::Program {
         use crate::compiler::compile;
         compile(self)
     }
 
+    /// Compiles the program into internal representation of bytecode that is ready to be emulated.
+    /// Constructs a source map during the compilation process.
     pub fn compile_sourcemap(self) -> SourceMap<crate::bytecode::Program> {
         crate::compiler::compile(self)
     }
