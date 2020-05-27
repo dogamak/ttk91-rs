@@ -29,8 +29,10 @@
 //!
 //!  - [SymbolId] ([SymbolId]): The unique [SymbolId] of the symbol.
 //!  - [Value] ([i32]): The value of the symbol. A numeric constant or an memory address.
-//!  - [Location] (Generic): Location of the symbol in the binary. Used by the compiler before the
-//!    final memory addresses are known.
+//!  - [BytecodeLocation](crate::compiler::BytecodeLocation)
+//!    (([BytecodeSegment](crate::compiler::BytecodeSegment),[usize])):
+//!    Location of the symbol in the binary. Used by the compiler before the final memory addresses
+//!    are known.
 //!  - [Defined] ([Span]): Location in the input stream at which the symbol was defined.
 //!  - [References] ([Vec]<[Span]>): List of locations in the input stream at which the symbol was
 //!    referenced.
@@ -44,8 +46,6 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
-
-use crate::compiler::CompileTarget;
 
 /// A collection of information associated with symbols.
 ///
@@ -143,25 +143,6 @@ impl Property for SymbolId {
 
     fn default_value() -> Self::Value {
         panic!("symbol without SymbolId should not exist")
-    }
-}
-
-/// Location to which the symbol points to in the binary.
-/// Used at the compilation stage, when the final memory addresses are not known.
-#[derive(Clone, Copy)]
-pub struct Location<T> {
-    loc: PhantomData<T>,
-}
-
-impl<T> Property for Location<T>
-where
-    T: CompileTarget,
-{
-    const NAME: &'static str = "Location";
-    type Value = Option<T::Location>;
-
-    fn default_value() -> Self::Value {
-        None
     }
 }
 
