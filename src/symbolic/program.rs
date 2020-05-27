@@ -3,11 +3,11 @@
 //! This module contains types that represent the various parts of an program in a way that makes
 //! representing invalid programs impossible (or at least tries).
 use super::parser::ParseError;
-use crate::compiler::SourceMap;
 use crate::instruction::{Instruction as BytecodeInstruction, Mode, OpCode, Register};
 use crate::parsing::Span;
 use crate::symbol_table::{SymbolId, SymbolTable};
 use crate::symbolic::parser::{ErrorKind, Parser};
+use crate::compiler::{compile, IrBackend};
 
 use std::fmt;
 
@@ -182,14 +182,14 @@ impl Value {
 #[derive(Clone, Debug)]
 pub struct SecondOperand {
     /// The addressing mode used for this operand.
-    pub(crate) mode: Mode,
+    pub mode: Mode,
 
     /// The base value for this operand.
-    pub(crate) value: Value,
+    pub value: Value,
 
     /// An optional index register whose value is added to the base value before address
     /// resolution.
-    pub(crate) index: Option<Register>,
+    pub index: Option<Register>,
 }
 
 impl From<super::ast::Operand> for SecondOperand {
@@ -467,13 +467,6 @@ impl Program {
 
     /// Compiles the program into internal representation of bytecode that is ready to be emulated.
     pub fn compile(self) -> crate::bytecode::Program {
-        use crate::compiler::compile;
-        compile(self)
-    }
-
-    /// Compiles the program into internal representation of bytecode that is ready to be emulated.
-    /// Constructs a source map during the compilation process.
-    pub fn compile_sourcemap(self) -> SourceMap<crate::bytecode::Program> {
-        crate::compiler::compile(self)
+        compile(IrBackend::default(), self).unwrap()
     }
 }
