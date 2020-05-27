@@ -1,6 +1,6 @@
 //! Compilation from assembly source to bytecode.
 
-use crate::symbol_table::{Label, SymbolId, SymbolInfo, SymbolTable, Value, Property};
+use crate::symbol_table::{SymbolId, SymbolTable, Value, Property};
 use crate::symbolic;
 use crate::symbolic::program::{
     PseudoInstruction,
@@ -10,11 +10,6 @@ use crate::symbolic::program::{
 
 use crate::bytecode::{Program, Segment};
 use crate::instruction::Instruction as BytecodeInstruction;
-
-use crate::parsing::Span;
-use std::collections::HashMap;
-
-use slog::{o, trace, Discard, Logger};
 
 /// Trait for producing compilation artifacts from a series of instructions.
 pub trait CompilerBackend {
@@ -242,7 +237,7 @@ pub fn compile<B>(mut backend: B, program: symbolic::program::Program)
 where
     B: CompilerBackend,
 {
-    let mut symbol_table = backend.symbol_table_mut();
+    let symbol_table = backend.symbol_table_mut();
     *symbol_table = program.symbol_table;
 
     symbol_table.get_or_create("HALT".into())
