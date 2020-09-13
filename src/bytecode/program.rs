@@ -1,4 +1,7 @@
 //! Bytecode program containing instructions, data and a symbol table.
+
+use crate::parsing::Span;
+use crate::source_map::SourceMap;
 use super::parser::{parse_bytecode_file, Error};
 use crate::symbol_table::SymbolTable;
 
@@ -18,6 +21,7 @@ pub struct Program {
     pub code: Segment,
     pub data: Segment,
     pub symbol_table: SymbolTable,
+    pub source_map: SourceMap<Span>,
 }
 
 impl Program {

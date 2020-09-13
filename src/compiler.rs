@@ -1,7 +1,10 @@
 //! Compilation from assembly source to bytecode.
 
+use std::collections::HashMap;
+
 use crate::symbol_table::{SymbolId, SymbolTable, Value, Property};
 use crate::symbolic;
+use crate::parsing::Span;
 use crate::symbolic::program::{
     PseudoInstruction,
     RealInstruction,
@@ -23,13 +26,13 @@ pub trait CompilerBackend {
     fn symbol_table_mut(&mut self) -> &mut SymbolTable;
 
     /// Handle a pseudo instruction.
-    fn pseudo_instruction(&mut self, instruction: PseudoInstruction) -> Result<(), Self::Error>;
+    fn pseudo_instruction(&mut self, instruction: PseudoInstruction, span: Option<Span>) -> Result<(), Self::Error>;
 
     /// Handle a label.
     fn insert_label(&mut self, symbol: SymbolId) -> Result<(), Self::Error>;
 
     /// Emit an instruction.
-    fn insert_instruction(&mut self, instruction: RealInstruction) -> Result<(), Self::Error>;
+    fn insert_instruction(&mut self, instruction: RealInstruction, span: Option<Span>) -> Result<(), Self::Error>;
 
     /// Finalize the compilation and return the artifact.
     fn finish(&mut self) -> Result<Self::Artifact, Self::Error>;
@@ -38,16 +41,17 @@ pub trait CompilerBackend {
 /// Backend that produces the internal representation of the program.
 #[derive(Debug, Clone, Default)]
 pub struct IrBackend {
-    symbol_table: SymbolTable,
-    relocation_table: Vec<(usize, SymbolId)>,
-    labels: Vec<SymbolId>,
-    data: Vec<i32>,
     code: Vec<u32>,
+    data: Vec<i32>,
+    labels: Vec<SymbolId>,
+    relocation_table: Vec<(usize, SymbolId)>,
+    source_map: HashMap<BytecodeLocation, Span>,
+    symbol_table: SymbolTable,
 }
 
 /// A TTK91 program has generally two memory segments: the code segment at the beginning of the
 /// memory and the following data segment.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum BytecodeSegment {
     Code,
     Data,
@@ -75,11 +79,17 @@ impl CompilerBackend for IrBackend {
         &mut self.symbol_table
     }
 
-    fn pseudo_instruction(&mut self, instruction: PseudoInstruction) -> Result<(), ()> {
+    fn pseudo_instruction(&mut self, instruction: PseudoInstruction, span: Option<Span>) -> Result<(), ()> {
         println!("Pseudo: {:?}", instruction);
+        let location = (BytecodeSegment::Data, self.data.len());
+
         for label in self.labels.drain(..) {
             self.symbol_table.symbol_mut(label)
-                .set::<BytecodeLocation>(Some((BytecodeSegment::Data, self.data.len())));
+                .set::<BytecodeLocation>(Some(location.clone()));
+        }
+
+        if let Some(span) = span {
+            self.source_map.insert(location, span);
         }
 
         let words = std::iter::repeat(instruction.value).take(instruction.size as usize);
@@ -92,20 +102,25 @@ impl CompilerBackend for IrBackend {
         Ok(())
     }
 
-    fn insert_instruction(&mut self, instruction: RealInstruction) -> Result<(), ()> {
+    fn insert_instruction(&mut self, instruction: RealInstruction, span: Option<Span>) -> Result<(), ()> {
         println!("Real: {:?}", instruction);
         if let symbolic::ast::Value::Symbol(sym) = instruction.operand2.value {
             self.relocation_table.push((self.code.len(), sym));
         }
 
         let ins: BytecodeInstruction = instruction.into();
+        let location = (BytecodeSegment::Code, self.code.len());
 
         for label in self.labels.drain(..) {
             self.symbol_table.symbol_mut(label)
-                .set::<BytecodeLocation>(Some((BytecodeSegment::Code, self.code.len())));
+                .set::<BytecodeLocation>(Some(location.clone()));
         }
 
         self.code.push(ins.into());
+
+        if let Some(span) = span {
+            self.source_map.insert(location, span);
+        }
 
         Ok(())
     }
@@ -129,12 +144,24 @@ impl CompilerBackend for IrBackend {
             self.code[*offset] = self.code[*offset] & 0xFFFF0000 | (addr as u32);
         }
 
+        let source_map = self.source_map.iter()
+            .map(|(loc, span)| {
+                let addr = match loc {
+                    (BytecodeSegment::Code, off) => *off,
+                    (BytecodeSegment::Data, off) => self.code.len() + *off,
+                };
+
+                (addr, span.clone())
+            })
+            .collect();
+
         let symbol_table = std::mem::take(&mut self.symbol_table);
         let data = std::mem::take(&mut self.data);
         let code = std::mem::take(&mut self.code);
 
         Ok(Program {
             symbol_table,
+            source_map,
             data: Segment {
                 start: code.len(),
                 content: data,
@@ -169,9 +196,9 @@ where
 
         match entry.instruction {
             SymbolicInstruction::Real(sym_ins) =>
-                backend.insert_instruction(sym_ins)?,
+                backend.insert_instruction(sym_ins, entry.span)?,
             SymbolicInstruction::Pseudo(ins) =>
-                backend.pseudo_instruction(ins)?,
+                backend.pseudo_instruction(ins, entry.span)?,
         }
     }
 

@@ -62,6 +62,10 @@ impl<Kind, Context> Error<Kind, Context> {
         self.context.push(ctx.into());
         self
     }
+
+    pub fn get_context(&self) -> &[Context] {
+        &self.context[..]
+    }
 }
 
 /// Trait which provides additional methods for [Result]s that have an [Error] as the error type.

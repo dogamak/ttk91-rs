@@ -423,7 +423,7 @@ where
 
                     error.context.push(Context::Suggestion {
                         span: span.clone(),
-                        message: format!("Consider changing this to {:?}", replacement),
+                        message: format!("Consider changing this to {}", replacement),
                     });
 
                     errors.push(error);
@@ -674,22 +674,17 @@ pub fn parse_line(input: &str)
 
 #[cfg(test)]
 mod tests {
+    use crate::parsing::AsLineSpan;
     use itertools::Itertools;
     use super::*;
-
-    /// Returns the line number and the column number of the specified offset in the provided input
-    /// buffer.
-    fn calc_line_col(input: &str, location: usize) -> (usize, usize) {
-        input[..location]
-            .split('\n')
-            .fold((0,0), |(l, _), line| (l+1,line.len()))
-    }
 
     /// Prints the supplied errors in an user friendly format.
     fn print_errors(input: &str, errors: &Vec<ParseError>) {
         for error in errors {
-            let index = error.span().map(|s| s.start).unwrap_or(input.len());
-            let (error_line, error_col) = calc_line_col(input, index);
+            let offset_span = error.span()
+                .cloned()
+                .unwrap_or(input.len()..input.len());
+            let span = offset_span.as_line_span(input);
 
             let message = error.context.iter()
                 .filter_map(|ctx| match ctx {
@@ -698,26 +693,26 @@ mod tests {
                 })
                 .join(": ");
 
-            let line = input.split('\n').skip(error_line-1).next().unwrap();
-            let prefix = format!("Line {} Column {}: Error: ", error_line, error_col);
+            let line = input.split('\n').skip(span.start.line-1).next().unwrap();
+            let prefix = format!("Line {} Column {}: Error: ", span.start.line, span.start.column);
             let old_len = line.len();
             let line = line.trim_start();
             let trim_diff = old_len - line.len();
             println!("{}{}", prefix, line);
-            print!("{}{} ", " ".repeat(prefix.len() + error_col - trim_diff), "^".repeat(error.span().unwrap().len()));
+            print!("{}{} ", " ".repeat(prefix.len() + span.start.column - trim_diff), "^".repeat(error.span().unwrap().len()));
             println!("{}", message);
 
             for ctx in &error.context {
                 if let Context::Suggestion { span, message } = ctx {
-                    let (error_line, error_col) = calc_line_col(input, span.start);
+                    let span = span.as_line_span(input);
 
-                    let line = input.split('\n').skip(error_line-1).next().unwrap();
-                    let prefix = format!("Line {} Column {}: Suggestion: ", error_line, error_col);
+                    let line = input.split('\n').skip(span.start.line-1).next().unwrap();
+                    let prefix = format!("Line {} Column {}: Suggestion: ", span.start.line, span.start.column);
                     let old_len = line.len();
                     let line = line.trim_start();
                     let trim_diff = old_len - line.len();
                     println!("{}{}", prefix, line);
-                    print!("{}{} ", " ".repeat(prefix.len() + error_col - trim_diff), "^".repeat(span.len()));
+                    print!("{}{} ", " ".repeat(prefix.len() + span.start.column - trim_diff), "^".repeat(offset_span.len()));
                     println!("{}", message);
                 }
             }

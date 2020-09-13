@@ -94,6 +94,7 @@ pub mod instruction;
 pub mod parsing;
 pub mod symbol_table;
 pub mod symbolic;
+pub mod source_map;
 
 //pub use emulator::{Memory, Emulator};
 //pub use program::Program;

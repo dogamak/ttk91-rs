@@ -237,6 +237,7 @@ impl<'t> Parser<'t> {
 
         Ok(Program {
             symbol_table: symbol_table.unwrap_or_default(),
+            source_map: Default::default(),
             code,
             data,
         })

@@ -6,7 +6,46 @@ use std::ops::Range;
 
 use crate::error::{Error, ErrorContext};
 
+/// Segment of the source code defined by it's start and end offsets.
 pub type Span = Range<usize>;
+
+/// Location in the source code defined by it's line and column numbers.
+pub struct LineLocation {
+    pub line: usize,
+    pub column: usize,
+}
+
+impl LineLocation {
+    /// Calculates the line and column numbers of an offset in the source code.
+    pub fn from_source_offset(source: &str, offset: usize) -> LineLocation {
+        let (line, column) = source[..offset]
+            .split('\n')
+            .fold((0,0), |(l, _), line| (l+1,line.len()));
+
+        LineLocation {
+            line,
+            column,
+        }
+    }
+}
+
+/// Segment of the source code defined by the line and column numbers of it's start and end
+/// locations.
+pub type LineSpan = Range<LineLocation>;
+
+/// Trait for converting [Span] into [LineSpan].
+pub trait AsLineSpan {
+    fn as_line_span(&self, input: &str) -> LineSpan;
+}
+
+impl AsLineSpan for Span {
+    fn as_line_span(&self, source: &str) -> LineSpan {
+        let start = LineLocation::from_source_offset(source, self.start);
+        let end = LineLocation::from_source_offset(source, self.end);
+
+        start..end
+    }
+}
 
 pub type ParseError<K, T> = Error<ErrorKind<K, T>, Context>;
 
