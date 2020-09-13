@@ -10,6 +10,7 @@ use crate::error::{Error, ErrorContext};
 pub type Span = Range<usize>;
 
 /// Location in the source code defined by it's line and column numbers.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LineLocation {
     pub line: usize,
     pub column: usize,
